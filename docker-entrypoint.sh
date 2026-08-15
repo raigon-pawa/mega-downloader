@@ -3,8 +3,10 @@
 #
 # Starts a virtual framebuffer (see the Dockerfile comment for why: the app
 # keeps MainPanelView/dialogs as never-shown objects instead of deleting
-# them, which requires AWT to NOT be headless), best-effort activates
-# ExpressVPN if an activation code was supplied, then runs the CLI jar.
+# them, which requires AWT to NOT be headless), starts the ExpressVPN
+# daemon, best-effort logs in if an activation code was supplied, enables
+# background mode (required for `connect` to work without a GUI client),
+# then runs the CLI jar.
 set -e
 
 # --- Virtual framebuffer ---
@@ -47,9 +49,29 @@ fi
 
 if [ -n "$EXPRESSVPN_ACTIVATION_CODE" ]; then
     echo "Activating ExpressVPN..."
-    expressvpnctl activate "$EXPRESSVPN_ACTIVATION_CODE" || \
-        echo "WARNING: ExpressVPN activation failed or was already active -- continuing anyway (VPN-dependent commands will fail if it's genuinely not activated)."
+    # Confirmed via real `expressvpnctl --help` output: there is no
+    # `activate <code>` command. Activation is `login <file>`, where the
+    # file holds the activation code (or username/password) on its own
+    # line(s) -- the code can't be passed directly as an argument. Written
+    # to a private tmpfile and removed immediately after use.
+    EXPRESSVPN_LOGIN_FILE=$(mktemp)
+    printf '%s\n' "$EXPRESSVPN_ACTIVATION_CODE" > "$EXPRESSVPN_LOGIN_FILE"
+    chmod 600 "$EXPRESSVPN_LOGIN_FILE"
+    expressvpnctl login "$EXPRESSVPN_LOGIN_FILE" || \
+        echo "WARNING: ExpressVPN login failed or was already active -- continuing anyway (VPN-dependent commands will fail if it's genuinely not activated)."
+    rm -f "$EXPRESSVPN_LOGIN_FILE"
 fi
+
+# `connect` explicitly refuses to work unless either the GUI client is
+# running or background mode is enabled -- confirmed via real
+# `expressvpnctl --help` output: "By default, the ExpressVPN daemon is
+# inactive when the GUI client is not running." There is no GUI client in
+# this container, so without this, every connect attempt would silently
+# fail. Attempted unconditionally (not just alongside a fresh login) since
+# this setting's persistence across container restarts isn't confirmed,
+# and it's a safe, idempotent call either way.
+expressvpnctl background enable || \
+    echo "WARNING: Could not enable ExpressVPN background mode -- 'connect' will likely fail without the GUI client running."
 
 # Backgrounded + waited-on (not exec'd) so the trap above can intervene on
 # SIGTERM/SIGINT; `wait` also propagates java's own exit code as this
