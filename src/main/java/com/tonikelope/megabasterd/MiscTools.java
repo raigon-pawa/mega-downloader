@@ -1,11 +1,6 @@
 /*
- __  __                  _               _               _ 
-|  \/  | ___  __ _  __ _| |__   __ _ ___| |_ ___ _ __ __| |
-| |\/| |/ _ \/ _` |/ _` | '_ \ / _` / __| __/ _ \ '__/ _` |
-| |  | |  __/ (_| | (_| | |_) | (_| \__ \ ||  __/ | | (_| |
-|_|  |_|\___|\__, |\__,_|_.__/ \__,_|___/\__\___|_|  \__,_|
-             |___/                                         
-© Perpetrated by tonikelope since 2016
+ * mega-downloader
+ * Originally MegaBasterd, © tonikelope since 2016. GPLv3.
  */
 package com.tonikelope.megabasterd;
 
@@ -1381,100 +1376,46 @@ public class MiscTools {
 
         int http_status = 0, http_error = 0;
 
+        // Sentinel: non-null (holds "vpn") while the most recent attempt
+        // went through ExpressVPN-protected routing. See ChunkDownloader
+        // for the same pattern/rationale.
         String current_smart_proxy = null;
-
-        boolean smart_proxy_socks = false;
-
-        ArrayList<String> excluded_proxy_list = new ArrayList<>();
 
         do {
 
-            SmartMegaProxyManager proxy_manager = MainPanel.getProxy_manager();
+            VpnRotationManager vpn_manager = MainPanel.getProxy_manager();
 
-            if (MainPanel.isUse_smart_proxy() && proxy_manager != null && proxy_manager.isForce_smart_proxy()) {
+            if (MainPanel.isUse_smart_proxy() && vpn_manager != null && vpn_manager.isForceVpn()) {
 
-                // getProxy() returns null when the pool is empty / every entry
-                // is banned or excluded. This block sits OUTSIDE the try below,
-                // so the old unconditional smart_proxy[0] threw an uncaught NPE
-                // straight into the caller (Download.getMegaFileDownloadUrl /
-                // the streamer) -- exactly in FORCE mode with a flaky pool,
-                // which is the #778 scenario. Null-guard + reset the excluded
-                // list so the next loop turn re-evaluates the full pool. (#778)
-                String[] smart_proxy = proxy_manager.getProxy(excluded_proxy_list);
+                current_smart_proxy = vpn_manager.ensureProtectiveRouting();
 
-                if (smart_proxy != null) {
-                    current_smart_proxy = smart_proxy[0];
-                    smart_proxy_socks = smart_proxy[1].equals("socks");
-                } else {
-                    LOG.log(Level.WARNING, "checkMegaDownloadUrl: SmartProxy force-mode exhausted -- checking direct");
-                    current_smart_proxy = null;
-                    excluded_proxy_list.clear();
+                if (current_smart_proxy == null) {
+                    LOG.log(Level.WARNING, "checkMegaDownloadUrl: VPN force-mode connect failed -- checking direct");
                 }
-
             }
 
             try {
 
                 URL url = new URL(string_url + "/0-0");
 
-                if ((current_smart_proxy != null || http_error == 509) && MainPanel.isUse_smart_proxy() && proxy_manager != null && !MainPanel.isUse_proxy()) {
+                if ((current_smart_proxy != null || http_error == 509) && MainPanel.isUse_smart_proxy() && vpn_manager != null && !MainPanel.isUse_proxy()) {
 
                     if (current_smart_proxy != null && http_error != 0) {
-
-                        proxy_manager.blockProxy(current_smart_proxy, "HTTP " + String.valueOf(http_error));
-
-                        String[] smart_proxy = proxy_manager.getProxy(excluded_proxy_list);
-
-                        if (smart_proxy != null) {
-                            current_smart_proxy = smart_proxy[0];
-                            smart_proxy_socks = smart_proxy[1].equals("socks");
-                        } else {
-                            current_smart_proxy = null;
-                            excluded_proxy_list.clear();
-                        }
-
-                    } else if (current_smart_proxy == null) {
-
-                        String[] smart_proxy = proxy_manager.getProxy(excluded_proxy_list);
-
-                        if (smart_proxy != null) {
-                            current_smart_proxy = smart_proxy[0];
-                            smart_proxy_socks = smart_proxy[1].equals("socks");
-                        } else {
-                            current_smart_proxy = null;
-                            excluded_proxy_list.clear();
-                        }
+                        vpn_manager.reportQuotaError(current_smart_proxy, "HTTP " + String.valueOf(http_error));
                     }
 
-                    if (current_smart_proxy != null) {
+                    current_smart_proxy = vpn_manager.ensureProtectiveRouting();
 
-                        String[] proxy_info = current_smart_proxy.split(":");
-
-                        Proxy proxy = new Proxy(smart_proxy_socks ? Proxy.Type.SOCKS : Proxy.Type.HTTP, new InetSocketAddress(proxy_info[0], Integer.parseInt(proxy_info[1])));
-
-                        con = (HttpURLConnection) url.openConnection(proxy);
-
-                    } else {
-
-                        if (MainPanel.isUse_proxy()) {
-
-                            con = (HttpURLConnection) url.openConnection(new Proxy(smart_proxy_socks ? Proxy.Type.SOCKS : Proxy.Type.HTTP, new InetSocketAddress(MainPanel.getProxy_host(), MainPanel.getProxy_port())));
-
-                            if (MainPanel.getProxy_user() != null && !"".equals(MainPanel.getProxy_user())) {
-
-                                con.setRequestProperty("Proxy-Authorization", "Basic " + MiscTools.Bin2BASE64((MainPanel.getProxy_user() + ":" + MainPanel.getProxy_pass()).getBytes("UTF-8")));
-                            }
-                        } else {
-
-                            con = (HttpURLConnection) url.openConnection();
-                        }
-                    }
+                    // ExpressVPN routes ALL of the machine's traffic through
+                    // the tunnel at the OS level once connected -- no
+                    // java.net.Proxy object needed (or meaningful).
+                    con = (HttpURLConnection) url.openConnection();
 
                 } else {
 
                     if (MainPanel.isUse_proxy()) {
 
-                        con = (HttpURLConnection) url.openConnection(new Proxy(smart_proxy_socks ? Proxy.Type.SOCKS : Proxy.Type.HTTP, new InetSocketAddress(MainPanel.getProxy_host(), MainPanel.getProxy_port())));
+                        con = (HttpURLConnection) url.openConnection(new Proxy(Proxy.Type.HTTP, new InetSocketAddress(MainPanel.getProxy_host(), MainPanel.getProxy_port())));
 
                         if (MainPanel.getProxy_user() != null && !"".equals(MainPanel.getProxy_user())) {
 
@@ -1486,9 +1427,9 @@ public class MiscTools {
                     }
                 }
 
-                if (current_smart_proxy != null && proxy_manager != null) {
-                    con.setConnectTimeout(proxy_manager.getProxy_timeout());
-                    con.setReadTimeout(proxy_manager.getProxy_timeout() * 2);
+                if (current_smart_proxy != null && vpn_manager != null) {
+                    con.setConnectTimeout(vpn_manager.getConnectTimeoutMs());
+                    con.setReadTimeout(vpn_manager.getConnectTimeoutMs() * 2);
                 }
 
                 con.setUseCaches(false);
@@ -1871,6 +1812,55 @@ public class MiscTools {
         }
     }
 
+    /**
+     * Console equivalent of GetMasterPasswordDialog.ok_buttonActionPerformed:
+     * prompts for the master password via the app's UserPrompter and
+     * validates it against the stored PBKDF2/SHA-1 hash using the exact same
+     * algorithm as the dialog (see GetMasterPasswordDialog), since both must
+     * accept precisely the password the user originally set. Retries a few
+     * times on a wrong password; returns null if the user gives up or no
+     * console input is available.
+     */
+    static byte[] promptMasterPasswordHeadless(MainPanel main_panel) {
+
+        final int MAX_ATTEMPTS = 3;
+
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+
+            char[] entered = main_panel.getUserPrompter().promptPassword("Master password:");
+
+            if (entered == null || entered.length == 0) {
+                return null;
+            }
+
+            try {
+                byte[] pass = CryptTools.PBKDF2HMACSHA256(new String(entered), BASE642Bin(main_panel.getMaster_pass_salt()), CryptTools.MASTER_PASSWORD_PBKDF2_ITERATIONS, CryptTools.MASTER_PASSWORD_PBKDF2_OUTPUT_BIT_LENGTH);
+
+                String pass_hash = Bin2BASE64(HashBin("SHA-1", pass));
+
+                String current_hash = main_panel.getMaster_pass_hash();
+
+                // Constant-time compare, matching GetMasterPasswordDialog.
+                if (java.security.MessageDigest.isEqual(
+                        pass_hash.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                        current_hash == null ? new byte[0] : current_hash.getBytes(java.nio.charset.StandardCharsets.UTF_8))) {
+
+                    return pass;
+                }
+
+                LOG.log(Level.WARNING, "Wrong master password ({0}/{1})", new Object[]{attempt, MAX_ATTEMPTS});
+
+            } catch (Exception ex) {
+                LOG.log(Level.SEVERE, "Master password verification failed: {0}", ex.getMessage());
+                return null;
+            } finally {
+                Arrays.fill(entered, '\0');
+            }
+        }
+
+        return null;
+    }
+
     public static MegaAPI checkMegaAccountLoginAndShowMasterPassDialog(MainPanel main_panel, Container container, String email) throws Exception {
 
         boolean remember_master_pass = true;
@@ -1890,31 +1880,51 @@ public class MiscTools {
 
                     if (main_panel.getMaster_pass() == null) {
 
-                        GetMasterPasswordDialog pdialog = new GetMasterPasswordDialog((Frame) container.getParent(), true, main_panel.getMaster_pass_hash(), main_panel.getMaster_pass_salt(), main_panel);
+                        if (MainPanel.isCliMode()) {
 
-                        pdialog.setLocationRelativeTo(container);
+                            byte[] entered_pass = promptMasterPasswordHeadless(main_panel);
 
-                        pdialog.setVisible(true);
+                            if (entered_pass != null) {
 
-                        if (pdialog.isPass_ok()) {
+                                main_panel.setMaster_pass(entered_pass);
 
-                            main_panel.setMaster_pass(pdialog.getPass());
+                                password_aes = Bin2BASE64(CryptTools.aes_cbc_decrypt_at_rest(BASE642Bin((String) account_info.get("password_aes")), main_panel.getMaster_pass()));
 
-                            pdialog.deletePass();
+                                user_hash = Bin2BASE64(CryptTools.aes_cbc_decrypt_at_rest(BASE642Bin((String) account_info.get("user_hash")), main_panel.getMaster_pass()));
 
-                            remember_master_pass = pdialog.getRemember_checkbox().isSelected();
+                            } else {
 
-                            pdialog.dispose();
-
-                            password_aes = Bin2BASE64(CryptTools.aes_cbc_decrypt_at_rest(BASE642Bin((String) account_info.get("password_aes")), main_panel.getMaster_pass()));
-
-                            user_hash = Bin2BASE64(CryptTools.aes_cbc_decrypt_at_rest(BASE642Bin((String) account_info.get("user_hash")), main_panel.getMaster_pass()));
+                                return null;
+                            }
 
                         } else {
 
-                            pdialog.dispose();
+                            GetMasterPasswordDialog pdialog = new GetMasterPasswordDialog((Frame) container.getParent(), true, main_panel.getMaster_pass_hash(), main_panel.getMaster_pass_salt(), main_panel);
 
-                            return null;
+                            pdialog.setLocationRelativeTo(container);
+
+                            pdialog.setVisible(true);
+
+                            if (pdialog.isPass_ok()) {
+
+                                main_panel.setMaster_pass(pdialog.getPass());
+
+                                pdialog.deletePass();
+
+                                remember_master_pass = pdialog.getRemember_checkbox().isSelected();
+
+                                pdialog.dispose();
+
+                                password_aes = Bin2BASE64(CryptTools.aes_cbc_decrypt_at_rest(BASE642Bin((String) account_info.get("password_aes")), main_panel.getMaster_pass()));
+
+                                user_hash = Bin2BASE64(CryptTools.aes_cbc_decrypt_at_rest(BASE642Bin((String) account_info.get("user_hash")), main_panel.getMaster_pass()));
+
+                            } else {
+
+                                pdialog.dispose();
+
+                                return null;
+                            }
                         }
 
                     } else {
@@ -1984,16 +1994,27 @@ public class MiscTools {
 
                         if (ma.check2FA(email)) {
 
-                            Get2FACode dialog = new Get2FACode((Frame) container.getParent(), true, email, main_panel);
+                            if (MainPanel.isCliMode()) {
 
-                            dialog.setLocationRelativeTo(container);
+                                pincode = main_panel.getUserPrompter().prompt2FACode(email);
 
-                            dialog.setVisible(true);
+                                if (pincode == null || pincode.isEmpty()) {
+                                    throw new MegaAPIException(-26);
+                                }
 
-                            if (dialog.isCode_ok()) {
-                                pincode = dialog.getPin_code();
                             } else {
-                                throw new MegaAPIException(-26);
+
+                                Get2FACode dialog = new Get2FACode((Frame) container.getParent(), true, email, main_panel);
+
+                                dialog.setLocationRelativeTo(container);
+
+                                dialog.setVisible(true);
+
+                                if (dialog.isCode_ok()) {
+                                    pincode = dialog.getPin_code();
+                                } else {
+                                    throw new MegaAPIException(-26);
+                                }
                             }
                         }
 
@@ -2020,7 +2041,12 @@ public class MiscTools {
                 } catch (MegaAPIException exception) {
 
                     if (exception.getCode() == -6) {
-                        JOptionPane.showMessageDialog(container.getParent(), LabelTranslatorSingleton.getInstance().translate("You've tried to login too many times. Wait an hour."), I18n.tr("ui.error_title"), JOptionPane.ERROR_MESSAGE);
+                        String msg = LabelTranslatorSingleton.getInstance().translate("You've tried to login too many times. Wait an hour.");
+                        if (MainPanel.isCliMode()) {
+                            main_panel.getUserPrompter().showError(I18n.tr("ui.error_title"), msg);
+                        } else {
+                            JOptionPane.showMessageDialog(container.getParent(), msg, I18n.tr("ui.error_title"), JOptionPane.ERROR_MESSAGE);
+                        }
                     }
 
                     throw exception;

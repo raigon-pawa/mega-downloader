@@ -1,11 +1,6 @@
 /*
- __  __                  _               _               _ 
-|  \/  | ___  __ _  __ _| |__   __ _ ___| |_ ___ _ __ __| |
-| |\/| |/ _ \/ _` |/ _` | '_ \ / _` / __| __/ _ \ '__/ _` |
-| |  | |  __/ (_| | (_| | |_) | (_| \__ \ ||  __/ | | (_| |
-|_|  |_|\___|\__, |\__,_|_.__/ \__,_|___/\__\___|_|  \__,_|
-             |___/                                         
-© Perpetrated by tonikelope since 2016
+ * mega-downloader
+ * Originally MegaBasterd, © tonikelope since 2016. GPLv3.
  */
 package com.tonikelope.megabasterd;
 
@@ -24,7 +19,7 @@ import javax.swing.JOptionPane;
 public class AboutDialog extends javax.swing.JDialog {
 
     public static final String MEGA_URL = "https://mega.nz/";
-    public static final String MEGABASTERD_URL = "https://github.com/tonikelope/megabasterd/releases/latest";
+    public static final String MEGABASTERD_URL = "https://github.com/raigon-pawa/mega-downloader/releases/latest";
     public static final String TONIKELOPE_URL = "https://github.com/tonikelope/";
     public static final String MEGACRYPTER_URL = "https://tonikelope.github.io/megacrypter/";
     public static final String SPAIN_URL = "https://en.wikipedia.org/wiki/Spain";
@@ -92,7 +87,7 @@ public class AboutDialog extends javax.swing.JDialog {
         });
 
         title_label.setFont(new java.awt.Font("Dialog", 1, 48)); // NOI18N
-        title_label.setText("MegaBasterd " + VERSION + " ");
+        title_label.setText("mega-downloader " + VERSION + " ");
         title_label.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
         title_label.setDoubleBuffered(true);
         title_label.addMouseListener(new java.awt.event.MouseAdapter() {
@@ -347,7 +342,7 @@ public class AboutDialog extends javax.swing.JDialog {
             MiscTools.GUIRun(() -> {
                 if (new_version != null) {
 
-                    JOptionPane.showMessageDialog(tthis, LabelTranslatorSingleton.getInstance().translate("MegaBasterd NEW VERSION is available! -> ") + new_version);
+                    JOptionPane.showMessageDialog(tthis, LabelTranslatorSingleton.getInstance().translate("mega-downloader NEW VERSION is available! -> ") + new_version);
 
                     mcdown_url_button.setEnabled(true);
 

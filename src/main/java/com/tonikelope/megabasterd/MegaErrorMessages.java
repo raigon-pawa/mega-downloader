@@ -1,11 +1,6 @@
 /*
- __  __                  _               _               _
-|  \/  | ___  __ _  __ _| |__   __ _ ___| |_ ___ _ __ __| |
-| |\/| |/ _ \/ _` |/ _` | '_ \ / _` / __| __/ _ \ '__/ _` |
-| |  | |  __/ (_| | (_| | |_) | (_| \__ \ ||  __/ | | (_| |
-|_|  |_|\___|\__, |\__,_|_.__/ \__,_|___/\__\___|_|  \__,_|
-             |___/
-© Perpetrated by tonikelope since 2016
+ * mega-downloader
+ * Originally MegaBasterd, © tonikelope since 2016. GPLv3.
  */
 package com.tonikelope.megabasterd;
 
@@ -455,6 +450,16 @@ public final class MegaErrorMessages {
         final String body = buildPopupHtml(code, identity, context, source);
         final String title = getTitle(code, source);
         final String plain = buildPlainText(code, identity, context, source);
+
+        // CLI/Docker mode: no human watching whatever display AWT thinks it
+        // has, so a real JDialog would just hang forever waiting for a
+        // click. Log the same plain-text summary the popup would have shown
+        // instead.
+        if (MainPanel.isCliMode()) {
+            java.util.logging.Logger.getLogger(MegaErrorMessages.class.getName())
+                    .log(is_error ? java.util.logging.Level.SEVERE : java.util.logging.Level.WARNING, plain);
+            return;
+        }
 
         MiscTools.GUIRun(() -> {
             Frame parent_frame = null;

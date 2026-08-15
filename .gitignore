@@ -130,3 +130,14 @@ $RECYCLE.BIN/
 
 #MegaBasterd DB
 *.db
+
+#---------------------------------------#
+# Docker / secrets                      #
+#---------------------------------------#
+
+# ExpressVPN installer (a paid vendor's binary -- the user supplies their
+# own, never committed) and any .env file holding the activation code.
+*.deb
+*.run
+.env
+

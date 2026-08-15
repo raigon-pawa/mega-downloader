@@ -1,0 +1,7 @@
+# Shell scripts and Docker files must keep LF line endings regardless of
+# the checking-out platform's git config -- docker-entrypoint.sh runs
+# inside a Linux container, and a CRLF-mangled shebang/script breaks with
+# obscure "$'\r': command not found" errors.
+*.sh text eol=lf
+Dockerfile text eol=lf
+docker-compose.yml text eol=lf

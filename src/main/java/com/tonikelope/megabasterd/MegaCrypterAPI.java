@@ -1,11 +1,6 @@
 /*
- __  __                  _               _               _ 
-|  \/  | ___  __ _  __ _| |__   __ _ ___| |_ ___ _ __ __| |
-| |\/| |/ _ \/ _` |/ _` | '_ \ / _` / __| __/ _ \ '__/ _` |
-| |  | |  __/ (_| | (_| | |_) | (_| \__ \ ||  __/ | | (_| |
-|_|  |_|\___|\__, |\__,_|_.__/ \__,_|___/\__\___|_|  \__,_|
-             |___/                                         
-© Perpetrated by tonikelope since 2016
+ * mega-downloader
+ * Originally MegaBasterd, © tonikelope since 2016. GPLv3.
  */
 package com.tonikelope.megabasterd;
 
@@ -258,20 +253,26 @@ public class MegaCrypterAPI {
 
                     if ((password = pass_list.poll()) == null) {
 
-                        // Show the modal password prompt OUTSIDE this lock would be
-                        // preferable, but we need the user's input before continuing
-                        // to validate. Run on EDT via invokeAndWait so that the modal
-                        // dialog's event loop is on the right thread; PASS_LOCK
-                        // remains held briefly.
-                        final String[] entered = {null};
-                        try {
-                            MiscTools.GUIRunAndWait(() -> {
-                                entered[0] = JOptionPane.showInputDialog(panel, I18n.tr("ui.input.megacrypter_password"));
-                            });
-                        } catch (Exception ex) {
-                            // ignore
+                        if (MainPanel.isCliMode()) {
+                            password = panel != null
+                                    ? panel.getMain_panel().getUserPrompter().promptText(I18n.tr("ui.input.megacrypter_password"))
+                                    : null;
+                        } else {
+                            // Show the modal password prompt OUTSIDE this lock would be
+                            // preferable, but we need the user's input before continuing
+                            // to validate. Run on EDT via invokeAndWait so that the modal
+                            // dialog's event loop is on the right thread; PASS_LOCK
+                            // remains held briefly.
+                            final String[] entered = {null};
+                            try {
+                                MiscTools.GUIRunAndWait(() -> {
+                                    entered[0] = JOptionPane.showInputDialog(panel, I18n.tr("ui.input.megacrypter_password"));
+                                });
+                            } catch (Exception ex) {
+                                // ignore
+                            }
+                            password = entered[0];
                         }
-                        password = entered[0];
                     }
 
                     if (password != null) {

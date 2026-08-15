@@ -1,11 +1,6 @@
 /*
- __  __                  _               _               _
-|  \/  | ___  __ _  __ _| |__   __ _ ___| |_ ___ _ __ __| |
-| |\/| |/ _ \/ _` |/ _` | '_ \ / _` / __| __/ _ \ '__/ _` |
-| |  | |  __/ (_| | (_| | |_) | (_| \__ \ ||  __/ | | (_| |
-|_|  |_|\___|\__, |\__,_|_.__/ \__,_|___/\__\___|_|  \__,_|
-             |___/
-© Perpetrated by tonikelope since 2016
+ * mega-downloader
+ * Originally MegaBasterd, © tonikelope since 2016. GPLv3.
  */
 package com.tonikelope.megabasterd;
 
@@ -143,7 +138,7 @@ public class QuotaRecoveryPanel extends JPanel {
         g.gridx = 0;
         g.gridy = 2;
         settings_panel.add(l2, g);
-        _recheck_509_spinner = new JSpinner(new SpinnerNumberModel(SmartMegaProxyManager.RECHECK_509_WINDOW_DEFAULT, 60, 86400, 60));
+        _recheck_509_spinner = new JSpinner(new SpinnerNumberModel(VpnRotationManager.RECHECK_509_WINDOW_DEFAULT, 60, 86400, 60));
         ((JSpinner.DefaultEditor) _recheck_509_spinner.getEditor()).getTextField().setEditable(true);
         g.gridx = 1;
         g.gridy = 2;
@@ -238,7 +233,7 @@ public class QuotaRecoveryPanel extends JPanel {
         _quota_stall_spinner.setValue(stall_v);
 
         String recheck = DBTools.selectSettingValue("smart_proxy_509_recheck_window");
-        int recheck_v = SmartMegaProxyManager.RECHECK_509_WINDOW_DEFAULT;
+        int recheck_v = VpnRotationManager.RECHECK_509_WINDOW_DEFAULT;
         if (recheck != null) {
             try {
                 int v = Integer.parseInt(recheck);
@@ -358,7 +353,7 @@ public class QuotaRecoveryPanel extends JPanel {
         new Thread(() -> {
             ExecutorService exec = null;
             try {
-                SmartMegaProxyManager pm = MainPanel.getProxy_manager();
+                VpnRotationManager pm = MainPanel.getProxy_manager();
                 if (pm == null) {
                     appendOutput(I18n.tr("ui.quota.test.smartproxy_not_initialised") + "\n");
                     return;
@@ -505,7 +500,7 @@ public class QuotaRecoveryPanel extends JPanel {
         if (_last_working_addrs.isEmpty()) {
             return;
         }
-        SmartMegaProxyManager pm = MainPanel.getProxy_manager();
+        VpnRotationManager pm = MainPanel.getProxy_manager();
         if (pm == null) {
             appendOutput(I18n.tr("ui.quota.test.smartproxy_not_initialised") + "\n");
             return;

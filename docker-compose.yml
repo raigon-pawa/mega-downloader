@@ -1,0 +1,29 @@
+services:
+  mega-downloader:
+    build:
+      context: .
+      args:
+        # Filename of the ExpressVPN .run installer you downloaded from
+        # your ExpressVPN account, placed in this directory before building.
+        EXPRESSVPN_RUN: expressvpn.run
+    image: mega-downloader:8.58
+    # ExpressVPN needs to create a tun network interface -- both of these
+    # are required, --cap-add alone is not enough.
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun
+    environment:
+      - EXPRESSVPN_ACTIVATION_CODE=${EXPRESSVPN_ACTIVATION_CODE:?set EXPRESSVPN_ACTIVATION_CODE in your .env file}
+    volumes:
+      - mega-downloader-data:/data
+    # No `command:` here on purpose -- pass the CLI subcommand at `docker
+    # compose run` time, e.g.:
+    #   docker compose run --rm mega-downloader download https://mega.nz/... --dir /data/downloads
+    # A bare `docker compose up` just prints --help and exits (the
+    # Dockerfile's default CMD), which is intentional: this is a one-shot
+    # CLI tool, not a long-running service, except for `stream` which
+    # blocks on purpose to keep serving.
+
+volumes:
+  mega-downloader-data:

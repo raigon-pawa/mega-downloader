@@ -1,24 +1,35 @@
+/*
+ * mega-downloader
+ * Originally MegaBasterd, © tonikelope since 2016. GPLv3.
+ */
 package com.tonikelope.megabasterd;
 
-import com.xuggle.xuggler.Global;
-import com.xuggle.xuggler.ICodec;
-import com.xuggle.xuggler.IContainer;
-import com.xuggle.xuggler.IPacket;
-import com.xuggle.xuggler.IPixelFormat;
-import com.xuggle.xuggler.IStream;
-import com.xuggle.xuggler.IStreamCoder;
-import com.xuggle.xuggler.IVideoPicture;
-import com.xuggle.xuggler.IVideoResampler;
-import com.xuggle.xuggler.Utils;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.imageio.ImageIO;
 
+/**
+ * Video thumbnails are grabbed by shelling out to {@code ffprobe}/{@code
+ * ffmpeg} instead of the Xuggler Java bindings this class used to wrap.
+ * Xuggler's `xuggle-xuggler-server-all` dependency was an unmaintained
+ * third-party SNAPSHOT with no confirmed Linux native support -- a poor fit
+ * for a Docker image. `ffmpeg` is a standard, well-maintained `apt` package
+ * available on essentially every Linux distro (and via winget/brew for local
+ * dev), so one subprocess call replaces the whole native-binding dependency
+ * tree. Image thumbnails (createImageThumbnail) never depended on Xuggler
+ * and are unchanged.
+ */
 public class Thumbnailer {
+
+    private static final Logger LOG = Logger.getLogger(Thumbnailer.class.getName());
 
     public Thumbnailer() {
     }
@@ -27,65 +38,8 @@ public class Thumbnailer {
 
     public static final float SECONDS_BETWEEN_FRAMES_PERC = 0.03f; //Take frame video at 3% position
 
-    /**
-     * The number of nano-seconds between frames.
-     */
-    private long nano_seconds_between_frames;
-
-    /**
-     * Time of last frame write.
-     */
-    private long mLastPtsWrite = Global.NO_PTS;
-
-    private int conta_frames = 0;
-
-    /**
-     * Write the video frame out to a PNG file every once and a while. The files
-     * are written out to the system's temporary directory.
-     *
-     * @param picture the video frame which contains the time stamp.
-     * @param image the buffered image to write out
-     */
-    private String processFrame(IVideoPicture picture, BufferedImage image) {
-        try {
-            // if uninitialized, backdate mLastPtsWrite so we get the very
-            // first frame
-
-            if (mLastPtsWrite == Global.NO_PTS) {
-                mLastPtsWrite = picture.getPts() - nano_seconds_between_frames;
-            }
-
-            // if it's time to write the next frame
-            if (picture.getPts() - mLastPtsWrite >= nano_seconds_between_frames) {
-                // Make a temorary file name
-
-                if (conta_frames == 1) {
-
-                    File file = File.createTempFile("megabasterd_thumbnail_" + MiscTools.genID(20), ".jpg");
-
-                    file.deleteOnExit();
-
-                    // write out JPG
-                    ImageIO.write(image, "jpg", file);
-
-                    conta_frames++;
-
-                    return file.getAbsolutePath();
-                }
-
-                conta_frames++;
-
-                // update last write time
-                mLastPtsWrite += nano_seconds_between_frames;
-
-                return null;
-            }
-        } catch (Exception e) {
-            Logger.getLogger(Thumbnailer.class.getName()).log(Level.SEVERE, null, e);
-        }
-
-        return null;
-    }
+    private static final int PROBE_TIMEOUT_SECS = 15;
+    private static final int FFMPEG_TIMEOUT_SECS = 30;
 
     public String createThumbnail(String filename) {
         try {
@@ -144,167 +98,107 @@ public class Thumbnailer {
     }
 
     /**
-     * Takes a media container (file) as the first argument, opens it, reads
-     * through the file and captures video frames periodically as specified by
-     * SECONDS_BETWEEN_FRAMES. The frames are written as PNG files into the
-     * system's temporary directory.
-     *
-     * @param args must contain one string which represents a filename
+     * Grabs a single frame at ~3% into the video (SECONDS_BETWEEN_FRAMES_PERC,
+     * matching the old Xuggler-based behaviour) via ffprobe (duration) +
+     * ffmpeg (frame extraction), and writes it out as a JPG in the system
+     * temp directory. Returns null if ffprobe/ffmpeg aren't on PATH, the
+     * file has no readable duration, or extraction otherwise fails --
+     * callers already treat a null thumbnail as "skip it", same as before.
      */
-    @SuppressWarnings("deprecation")
     private String createVideoThumbnail(String filename) {
 
-        // make sure that we can actually convert video pixel formats
-        if (!IVideoResampler.isSupported(
-                IVideoResampler.Feature.FEATURE_COLORSPACECONVERSION)) {
-            throw new RuntimeException(
-                    "you must install the GPL version of Xuggler (with IVideoResampler"
-                    + " support) for this demo to work");
+        Double duration_secs = probeDurationSeconds(filename);
+
+        if (duration_secs == null || duration_secs <= 0) {
+            return null;
         }
 
-        // create a Xuggler container object
-        IContainer container = IContainer.make();
-        IStreamCoder videoCoder = null;
-        IVideoResampler resampler = null;
-        IPacket packet = null;
+        double seek_secs = duration_secs * SECONDS_BETWEEN_FRAMES_PERC;
+
+        File out;
+        try {
+            out = File.createTempFile("megabasterd_thumbnail_" + MiscTools.genID(20), ".jpg");
+            out.deleteOnExit();
+        } catch (Exception ex) {
+            LOG.log(Level.SEVERE, "Could not create temp file for video thumbnail: {0}", ex.getMessage());
+            return null;
+        }
+
+        ProcessBuilder pb = new ProcessBuilder(
+                "ffmpeg", "-y",
+                "-ss", String.format(java.util.Locale.ROOT, "%.3f", seek_secs),
+                "-i", filename,
+                "-frames:v", "1",
+                "-q:v", "2",
+                out.getAbsolutePath());
+        pb.redirectErrorStream(true);
 
         try {
+            Process p = pb.start();
 
-            // open up the container
-            if (container.open(filename, IContainer.Type.READ, null) < 0) {
-                throw new IllegalArgumentException("could not open file: " + filename);
-            }
-
-            nano_seconds_between_frames = (long) (Global.DEFAULT_PTS_PER_SECOND * Math.round((float) SECONDS_BETWEEN_FRAMES_PERC * container.getDuration() / 1000000));
-
-            // query how many streams the call to open found
-            int numStreams = container.getNumStreams();
-
-            // and iterate through the streams to find the first video stream
-            int videoStreamId = -1;
-            for (int i = 0; i < numStreams; i++) {
-
-                IStream stream = container.getStream(i);
-
-                IStreamCoder coder = stream.getStreamCoder();
-
-                if (coder.getCodecType() == ICodec.Type.CODEC_TYPE_VIDEO) {
-                    videoStreamId = i;
-                    videoCoder = coder;
-                    break;
+            // Drain stdout/stderr so ffmpeg's pipe never fills and blocks it
+            // mid-extraction -- we don't care about the output, just that
+            // the process isn't stalled waiting for a reader.
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+                while (reader.readLine() != null) {
+                    // discard
                 }
             }
 
-            if (videoStreamId == -1) {
-                throw new RuntimeException("could not find video stream in container: " + filename);
+            boolean finished = p.waitFor(FFMPEG_TIMEOUT_SECS, TimeUnit.SECONDS);
+
+            if (!finished) {
+                p.destroyForcibly();
+                LOG.log(Level.WARNING, "ffmpeg thumbnail extraction timed out for {0}", filename);
+                return null;
             }
 
-            if (videoCoder.open() < 0) {
-                throw new RuntimeException(
-                        "could not open video decoder for container: " + filename);
+            if (p.exitValue() != 0 || !out.exists() || out.length() == 0) {
+                LOG.log(Level.WARNING, "ffmpeg thumbnail extraction failed for {0} (exit {1})",
+                        new Object[]{filename, p.exitValue()});
+                return null;
             }
 
-            if (videoCoder.getPixelType() != IPixelFormat.Type.BGR24) {
+            return out.getAbsolutePath();
 
-                resampler = IVideoResampler.make(
-                        videoCoder.getWidth(), videoCoder.getHeight(), IPixelFormat.Type.BGR24,
-                        videoCoder.getWidth(), videoCoder.getHeight(), videoCoder.getPixelType());
-                if (resampler == null) {
-                    throw new RuntimeException(
-                            "could not create color space resampler for: " + filename);
-                }
+        } catch (Exception ex) {
+            LOG.log(Level.WARNING, "ffmpeg not available or failed for {0}: {1}", new Object[]{filename, ex.getMessage()});
+            return null;
+        }
+    }
+
+    private Double probeDurationSeconds(String filename) {
+        ProcessBuilder pb = new ProcessBuilder(
+                "ffprobe", "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                filename);
+        pb.redirectErrorStream(false);
+
+        try {
+            Process p = pb.start();
+
+            String output;
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+                output = reader.readLine();
             }
 
-            packet = IPacket.make();
+            boolean finished = p.waitFor(PROBE_TIMEOUT_SECS, TimeUnit.SECONDS);
 
-            String frame_file = null;
-
-            while (container.readNextPacket(packet) >= 0 && conta_frames < 2) {
-
-                if (packet.getStreamIndex() == videoStreamId) {
-
-                    IVideoPicture picture = IVideoPicture.make(videoCoder.getPixelType(),
-                            videoCoder.getWidth(), videoCoder.getHeight());
-
-                    IVideoPicture newPic = null;
-
-                    try {
-
-                        int offset = 0;
-
-                        while (offset < packet.getSize()) {
-
-                            int bytesDecoded = videoCoder.decodeVideo(picture, packet, offset);
-                            if (bytesDecoded < 0) {
-                                throw new RuntimeException("got error decoding video in: " + filename);
-                            }
-                            offset += bytesDecoded;
-
-                            if (picture.isComplete()) {
-                                newPic = picture;
-
-                                if (resampler != null) {
-                                    newPic = IVideoPicture.make(
-                                            resampler.getOutputPixelFormat(), picture.getWidth(),
-                                            picture.getHeight());
-                                    if (resampler.resample(newPic, picture) < 0) {
-                                        throw new RuntimeException(
-                                                "could not resample video from: " + filename);
-                                    }
-                                }
-
-                                if (newPic.getPixelType() != IPixelFormat.Type.BGR24) {
-                                    throw new RuntimeException(
-                                            "could not decode video as BGR 24 bit data in: " + filename);
-                                }
-
-                                BufferedImage javaImage = Utils.videoPictureToImage(newPic);
-
-                                frame_file = processFrame(newPic, javaImage);
-                            }
-                        }
-
-                    } finally {
-                        if (newPic != null && newPic != picture) {
-                            newPic.delete();
-                        }
-                        picture.delete();
-                    }
-                }
-
+            if (!finished) {
+                p.destroyForcibly();
+                return null;
             }
 
-            return frame_file;
-
-        } finally {
-
-            if (packet != null) {
-                try {
-                    packet.delete();
-                } catch (Throwable ignore) {
-                }
+            if (p.exitValue() != 0 || output == null || output.trim().isEmpty()) {
+                return null;
             }
 
-            if (resampler != null) {
-                try {
-                    resampler.delete();
-                } catch (Throwable ignore) {
-                }
-            }
+            return Double.parseDouble(output.trim());
 
-            if (videoCoder != null) {
-                try {
-                    videoCoder.close();
-                } catch (Throwable ignore) {
-                }
-            }
-
-            if (container != null) {
-                try {
-                    container.close();
-                } catch (Throwable ignore) {
-                }
-            }
+        } catch (Exception ex) {
+            LOG.log(Level.WARNING, "ffprobe not available or failed for {0}: {1}", new Object[]{filename, ex.getMessage()});
+            return null;
         }
     }
 }

@@ -1,11 +1,6 @@
 /*
- __  __                  _               _               _ 
-|  \/  | ___  __ _  __ _| |__   __ _ ___| |_ ___ _ __ __| |
-| |\/| |/ _ \/ _` |/ _` | '_ \ / _` / __| __/ _ \ '__/ _` |
-| |  | |  __/ (_| | (_| | |_) | (_| \__ \ ||  __/ | | (_| |
-|_|  |_|\___|\__, |\__,_|_.__/ \__,_|___/\__\___|_|  \__,_|
-             |___/                                         
-© Perpetrated by tonikelope since 2016
+ * mega-downloader
+ * Originally MegaBasterd, © tonikelope since 2016. GPLv3.
  */
 package com.tonikelope.megabasterd;
 
@@ -19,7 +14,6 @@ import java.net.InetSocketAddress;
 import java.net.Proxy;
 import java.net.SocketTimeoutException;
 import java.net.URL;
-import java.util.ArrayList;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.crypto.CipherInputStream;
@@ -45,24 +39,6 @@ public class ChunkDownloaderMono extends ChunkDownloader {
 
     public ChunkDownloaderMono(Download download) {
         super(1, download);
-    }
-
-    /**
-     * Defensive port parse for smart-proxy entries; -1 means the entry is
-     * malformed and should be banned. See ChunkDownloader.run() for the same
-     * guard on the multi-slot path. (#751 / C3)
-     */
-    private static int parseProxyPort(String proxy) {
-        String[] parts = proxy.split(":");
-        if (parts.length != 2) {
-            return -1;
-        }
-        try {
-            int p = Integer.parseInt(parts[1]);
-            return (p >= 1 && p <= 65535) ? p : -1;
-        } catch (NumberFormatException ex) {
-            return -1;
-        }
     }
 
     @Override
@@ -97,26 +73,18 @@ public class ChunkDownloaderMono extends ChunkDownloader {
 
             CipherInputStream cis = null;
 
-            // SmartProxy support for mono-slot (streaming) downloads. Previously
-            // ChunkDownloaderMono had no smart_proxy fallback at all, so a 509
-            // on a stream had no recovery path other than the (now also added)
-            // VPN-aware exp-backoff. With this in place a stream can rotate
-            // through the same proxy pool the multi-slot path uses. (#751 / C3)
-            //
+            // VPN-protected routing for mono-slot (streaming) downloads.
             // Refreshed each loop iteration below: capturing once was a stale
-            // reference bug -- if SmartProxy was OFF at worker startup,
-            // proxy_manager stayed null forever and the smart_proxy_path guard
-            // (which already null-checks proxy_manager) silently kept the
-            // worker on direct mode even after the user enabled SmartProxy at
-            // runtime. (#758)
-            SmartMegaProxyManager proxy_manager = MainPanel.getProxy_manager();
-            ArrayList<String> excluded_proxy_list = new ArrayList<>();
+            // reference bug -- if it was OFF at worker startup, vpn_manager
+            // stayed null forever and the vpn_path guard (which already
+            // null-checks vpn_manager) silently kept the worker on direct
+            // mode even after the user enabled it at runtime. (#758)
+            VpnRotationManager vpn_manager = MainPanel.getProxy_manager();
             String current_smart_proxy = null;
-            boolean smart_proxy_socks = false;
 
             while (!getDownload().getMain_panel().isExit() && !isExit() && !getDownload().isStopped()) {
 
-                proxy_manager = MainPanel.getProxy_manager();
+                vpn_manager = MainPanel.getProxy_manager();
 
                 if (worker_url == null || http_error == 403) {
 
@@ -145,68 +113,33 @@ public class ChunkDownloaderMono extends ChunkDownloader {
 
                         URL url = new URL(worker_url + "/" + chunk_offset);
 
-                        boolean smart_proxy_path = MainPanel.isUse_smart_proxy()
-                                && proxy_manager != null
-                                && (proxy_manager.isForce_smart_proxy() || current_smart_proxy != null || http_error == 509)
+                        boolean vpn_path = MainPanel.isUse_smart_proxy()
+                                && vpn_manager != null
+                                && (vpn_manager.isForceVpn() || current_smart_proxy != null || http_error == 509)
                                 && !MainPanel.isUse_proxy();
 
-                        if (smart_proxy_path) {
+                        if (vpn_path) {
 
-                            // Refresh / rotate the current proxy on chunk_error,
-                            // pick one for the first time when current is null.
-                            // Mirror the multi-slot policy: blockProxy on
-                            // non-429 errors, soft-exclude on 429 / timeout. (#751 / C3)
+                            // Rotate to a different ExpressVPN location on
+                            // chunk_error, connect for the first time when
+                            // not yet engaged. Mirror the multi-slot policy.
+                            // Passing the observed location lets concurrent
+                            // workers' redundant reports collapse into one
+                            // reconnect (see VpnRotationManager.reportQuotaError).
                             if (current_smart_proxy != null && chunk_error) {
-
-                                if (!timeout && http_error != 429) {
-                                    proxy_manager.blockProxy(current_smart_proxy, timeout ? "TIMEOUT!" : "HTTP " + String.valueOf(http_error));
-                                } else {
-                                    excluded_proxy_list.add(current_smart_proxy);
-                                }
-
-                                String[] smart_proxy = proxy_manager.getProxy(excluded_proxy_list);
-                                if (smart_proxy != null) {
-                                    current_smart_proxy = smart_proxy[0];
-                                    smart_proxy_socks = smart_proxy[1].equals("socks");
-                                } else {
-                                    LOG.log(Level.WARNING, "{0} Mono Worker SmartProxy exhausted -- falling back to direct", Thread.currentThread().getName());
-                                    current_smart_proxy = null;
-                                    // Reset the local excluded list so we don't
-                                    // lock into direct -> 509 forever. Parity
-                                    // with ChunkDownloader. (#778)
-                                    excluded_proxy_list.clear();
-                                }
-
-                            } else if (current_smart_proxy == null) {
-
-                                String[] smart_proxy = proxy_manager.getProxy(excluded_proxy_list);
-                                if (smart_proxy != null) {
-                                    current_smart_proxy = smart_proxy[0];
-                                    smart_proxy_socks = smart_proxy[1].equals("socks");
-                                } else {
-                                    LOG.log(Level.WARNING, "{0} Mono Worker SmartProxy: no proxies available -- falling back to direct", Thread.currentThread().getName());
-                                    current_smart_proxy = null;
-                                    excluded_proxy_list.clear();
-                                }
+                                vpn_manager.reportQuotaError(current_smart_proxy, timeout ? "TIMEOUT!" : "HTTP " + String.valueOf(http_error));
                             }
 
-                            if (current_smart_proxy != null) {
-                                int proxy_port = parseProxyPort(current_smart_proxy);
-                                if (proxy_port < 0) {
-                                    LOG.log(Level.WARNING, "{0} Mono Worker malformed smart proxy entry {1} -- banning + direct fallback",
-                                            new Object[]{Thread.currentThread().getName(), current_smart_proxy});
-                                    proxy_manager.blockProxy(current_smart_proxy, "Malformed entry");
-                                    excluded_proxy_list.add(current_smart_proxy);
-                                    current_smart_proxy = null;
-                                    con = (HttpURLConnection) url.openConnection();
-                                } else {
-                                    String[] proxy_info = current_smart_proxy.split(":");
-                                    Proxy proxy = new Proxy(smart_proxy_socks ? Proxy.Type.SOCKS : Proxy.Type.HTTP, new InetSocketAddress(proxy_info[0], proxy_port));
-                                    con = (HttpURLConnection) url.openConnection(proxy);
-                                }
-                            } else {
-                                con = (HttpURLConnection) url.openConnection();
+                            current_smart_proxy = vpn_manager.ensureProtectiveRouting();
+
+                            if (current_smart_proxy == null) {
+                                LOG.log(Level.WARNING, "{0} Mono Worker VPN connect failed/unavailable -- falling back to direct", Thread.currentThread().getName());
                             }
+
+                            // ExpressVPN routes ALL of the machine's traffic
+                            // through the tunnel at the OS level once
+                            // connected -- no java.net.Proxy object needed.
+                            con = (HttpURLConnection) url.openConnection();
 
                         } else if (MainPanel.isUse_proxy()) {
 
@@ -221,9 +154,9 @@ public class ChunkDownloaderMono extends ChunkDownloader {
                             con = (HttpURLConnection) url.openConnection();
                         }
 
-                        if (current_smart_proxy != null && proxy_manager != null) {
-                            con.setConnectTimeout(proxy_manager.getProxy_timeout());
-                            con.setReadTimeout(proxy_manager.getProxy_timeout() * 2);
+                        if (current_smart_proxy != null && vpn_manager != null) {
+                            con.setConnectTimeout(vpn_manager.getConnectTimeoutMs());
+                            con.setReadTimeout(vpn_manager.getConnectTimeoutMs() * 2);
                         } else {
                             con.setConnectTimeout(Transference.HTTP_CONNECT_TIMEOUT);
                             con.setReadTimeout(Transference.HTTP_READ_TIMEOUT);
@@ -332,11 +265,6 @@ public class ChunkDownloaderMono extends ChunkDownloader {
                                 // fresh IP-change detection window. (#751)
                                 _ip_at_first_509 = null;
                                 _last_http_error = 0;
-
-                                // Successful chunk: also clear the per-burst
-                                // proxy exclusion list, mirroring the multi-slot
-                                // path's _excluded_proxy_list.clear().
-                                excluded_proxy_list.clear();
 
                             }
                         }

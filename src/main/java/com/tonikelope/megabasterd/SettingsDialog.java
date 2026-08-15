@@ -1,19 +1,14 @@
 /*
- __  __                  _               _               _ 
-|  \/  | ___  __ _  __ _| |__   __ _ ___| |_ ___ _ __ __| |
-| |\/| |/ _ \/ _` |/ _` | '_ \ / _` / __| __/ _ \ '__/ _` |
-| |  | |  __/ (_| | (_| | |_) | (_| \__ \ ||  __/ | | (_| |
-|_|  |_|\___|\__, |\__,_|_.__/ \__,_|___/\__\___|_|  \__,_|
-             |___/                                         
-© Perpetrated by tonikelope since 2016
+ * mega-downloader
+ * Originally MegaBasterd, © tonikelope since 2016. GPLv3.
  */
 package com.tonikelope.megabasterd;
 
 import static com.tonikelope.megabasterd.DBTools.*;
 import static com.tonikelope.megabasterd.MainPanel.*;
 import static com.tonikelope.megabasterd.MiscTools.*;
-import static com.tonikelope.megabasterd.SmartMegaProxyManager.PROXY_AUTO_REFRESH_TIME;
-import static com.tonikelope.megabasterd.SmartMegaProxyManager.PROXY_BLOCK_TIME;
+import static com.tonikelope.megabasterd.VpnRotationManager.PROXY_AUTO_REFRESH_TIME;
+import static com.tonikelope.megabasterd.VpnRotationManager.PROXY_BLOCK_TIME;
 import java.awt.Dialog;
 import java.awt.Frame;
 import java.io.BufferedInputStream;
@@ -306,9 +301,9 @@ public class SettingsDialog extends javax.swing.JDialog {
             javax.swing.JButton refresh_proxy_button = new javax.swing.JButton(I18n.tr("ui.smartproxy.refresh_now"));
             refresh_proxy_button.setToolTipText(I18n.tr("ui.smartproxy.refresh_now.tooltip"));
             refresh_proxy_button.addActionListener(e -> {
-                SmartMegaProxyManager pm = MainPanel.getProxy_manager();
+                VpnRotationManager pm = MainPanel.getProxy_manager();
                 if (pm != null) {
-                    MainPanel.THREAD_POOL.execute(pm::refreshProxyList);
+                    MainPanel.THREAD_POOL.execute(pm::refreshVpnSettings);
                 }
             });
             refresh_row.add(refresh_proxy_button);
@@ -672,7 +667,7 @@ public class SettingsDialog extends javax.swing.JDialog {
             ((JSpinner.DefaultEditor) proxy_timeout_spinner.getEditor()).getTextField().setEditable(true);
             proxy_timeout_spinner.setToolTipText(I18n.tr("settings.smartproxy.timeout.tooltip"));
 
-            boolean reset_slot_proxy = SmartMegaProxyManager.RESET_SLOT_PROXY;
+            boolean reset_slot_proxy = VpnRotationManager.RESET_SLOT_PROXY;
 
             String sreset_slot_proxy = DBTools.selectSettingValue("reset_slot_proxy");
 
@@ -683,7 +678,7 @@ public class SettingsDialog extends javax.swing.JDialog {
 
             proxy_reset_slot_checkbox.setSelected(reset_slot_proxy);
 
-            boolean random_select = SmartMegaProxyManager.RANDOM_SELECT;
+            boolean random_select = VpnRotationManager.RANDOM_SELECT;
 
             String srandom_select = DBTools.selectSettingValue("random_proxy");
 

@@ -1,11 +1,6 @@
 /*
- __  __                  _               _               _ 
-|  \/  | ___  __ _  __ _| |__   __ _ ___| |_ ___ _ __ __| |
-| |\/| |/ _ \/ _` |/ _` | '_ \ / _` / __| __/ _ \ '__/ _` |
-| |  | |  __/ (_| | (_| | |_) | (_| \__ \ ||  __/ | | (_| |
-|_|  |_|\___|\__, |\__,_|_.__/ \__,_|___/\__\___|_|  \__,_|
-             |___/                                         
-© Perpetrated by tonikelope since 2016
+ * mega-downloader
+ * Originally MegaBasterd, © tonikelope since 2016. GPLv3.
  */
 package com.tonikelope.megabasterd;
 
@@ -667,7 +662,7 @@ public final class MainPanelView extends javax.swing.JFrame {
         help_menu = new javax.swing.JMenu();
         about_menu = new javax.swing.JMenuItem();
 
-        setTitle("MegaBasterd " + VERSION);
+        setTitle("mega-downloader " + VERSION);
         setIconImage(new ImageIcon(getClass().getResource(ICON_FILE)).getImage());
         setPreferredSize(new java.awt.Dimension(1024, 650));
         setSize(new java.awt.Dimension(1024, 650));
@@ -1493,15 +1488,13 @@ public final class MainPanelView extends javax.swing.JFrame {
 
                 if (MainPanel.isUse_smart_proxy()) {
 
-                    // #URL extraction is now done inside SmartMegaProxyManager
-                    // itself so multiple sources can be aggregated. (#753)
                     if (MainPanel.getProxy_manager() == null) {
-                        MainPanel.setProxy_manager(new SmartMegaProxyManager(_main_panel));
+                        MainPanel.setProxy_manager(new VpnRotationManager(_main_panel));
                     } else {
-                        MainPanel.THREAD_POOL.execute(() -> MainPanel.getProxy_manager().refreshProxyList());
+                        MainPanel.THREAD_POOL.execute(() -> MainPanel.getProxy_manager().refreshVpnSettings());
                     }
 
-                    MainPanel.getProxy_manager().refreshSmartProxySettings();
+                    MainPanel.getProxy_manager().refreshVpnSettings();
 
                     wakeStalledDownloadsForSmartProxy();
 
@@ -1747,14 +1740,12 @@ public final class MainPanelView extends javax.swing.JFrame {
 
     private void refresh_smartproxy_buttonActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_refresh_smartproxy_buttonActionPerformed
 
-        // Off-EDT because SmartMegaProxyManager.refreshProxyList does HTTP I/O
-        // against the configured #URL feeds, which can stall this thread for
-        // seconds if a feed is unreachable; keeping it on the EDT would freeze
-        // the whole UI. Back-to-back clicks collapse on the manager's own
-        // synchronized monitor inside refreshProxyList. Match SettingsDialog's
-        // "Refresh proxy list now" button (added in #758) so the user gets
-        // the same behaviour from either entry point. (#759)
-        SmartMegaProxyManager pm = MainPanel.getProxy_manager();
+        // Off-EDT because refreshVpnSettings re-reads settings that may
+        // involve I/O; keeping it on the EDT would freeze the whole UI.
+        // Match SettingsDialog's "Refresh proxy list now" button (added in
+        // #758) so the user gets the same behaviour from either entry
+        // point. (#759)
+        VpnRotationManager pm = MainPanel.getProxy_manager();
         if (pm == null) {
             return;
         }
@@ -1763,7 +1754,7 @@ public final class MainPanelView extends javax.swing.JFrame {
 
         MainPanel.THREAD_POOL.execute(() -> {
             try {
-                pm.refreshProxyList();
+                pm.refreshVpnSettings();
                 // A fresh pool is exactly when workers stuck in 509 backoff /
                 // auto-retry countdown should retry immediately, instead of
                 // waiting out their full backoff before consulting the new

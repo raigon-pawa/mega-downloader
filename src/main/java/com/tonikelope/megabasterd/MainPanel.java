@@ -1,11 +1,6 @@
 /*
- __  __                  _               _               _ 
-|  \/  | ___  __ _  __ _| |__   __ _ ___| |_ ___ _ __ __| |
-| |\/| |/ _ \/ _` |/ _` | '_ \ / _` / __| __/ _ \ '__/ _` |
-| |  | |  __/ (_| | (_| | |_) | (_| \__ \ ||  __/ | | (_| |
-|_|  |_|\___|\__, |\__,_|_.__/ \__,_|___/\__\___|_|  \__,_|
-             |___/                                         
-© Perpetrated by tonikelope since 2016
+ * mega-downloader
+ * Originally MegaBasterd, © tonikelope since 2016. GPLv3.
  */
 package com.tonikelope.megabasterd;
 
@@ -188,7 +183,13 @@ public final class MainPanel {
     private static String _font;
     // volatile: see the proxy-config block above -- read by already-running
     // worker threads, written on the EDT at runtime-enable. (#778)
-    private static volatile SmartMegaProxyManager _proxy_manager;
+    // Type is VpnRotationManager (ExpressVPN-based), not the old
+    // SmartMegaProxyManager (open-proxy pool) -- field/getter/setter names
+    // kept unchanged so the ~190 GUI-only references across
+    // SettingsDialog/QuotaRecoveryPanel/MainPanelView (all unreachable dead
+    // code now, kept only as inert plumbing per the plan doc) still
+    // compile unmodified. (#Phase4)
+    private static volatile VpnRotationManager _proxy_manager;
     private static volatile String _language;
     private static String _new_version;
     private static Boolean _resume_uploads;
@@ -297,6 +298,24 @@ public final class MainPanel {
 
         }
 
+        bootstrapDbAndSettings();
+
+        final MainPanel main_panel = new MainPanel();
+
+        invokeLater(() -> {
+            main_panel.getView().setVisible(true);
+        });
+    }
+
+    /**
+     * Portable-dir detection, DB schema setup, and one-time settings
+     * migrations -- everything main() needs before constructing MainPanel,
+     * none of it GUI-specific. Extracted so CliMain can share it verbatim
+     * instead of re-deriving the same startup sequence (and risking drift
+     * from these migrations over time).
+     */
+    public static void bootstrapDbAndSettings() {
+
         File f = new File(getCurrentJarParentPath() + "/.megabasterd_portable");
 
         if (f.exists()) {
@@ -348,12 +367,6 @@ public final class MainPanel {
         }
 
         MiscTools.purgeOrphanThumbnails();
-
-        final MainPanel main_panel = new MainPanel();
-
-        invokeLater(() -> {
-            main_panel.getView().setVisible(true);
-        });
     }
 
     public static boolean isRun_command() {
@@ -431,7 +444,7 @@ public final class MainPanel {
         return _proxy_pass;
     }
 
-    public static void setProxy_manager(SmartMegaProxyManager proxy_manager) {
+    public static void setProxy_manager(VpnRotationManager proxy_manager) {
         _proxy_manager = proxy_manager;
     }
 
@@ -451,7 +464,7 @@ public final class MainPanel {
         return _use_smart_proxy;
     }
 
-    public static SmartMegaProxyManager getProxy_manager() {
+    public static VpnRotationManager getProxy_manager() {
         return _proxy_manager;
     }
 
@@ -482,8 +495,56 @@ public final class MainPanel {
     private boolean _megacrypter_reverse;
     private float _zoom_factor;
     private volatile boolean _exit;
+    private final UserPrompter _user_prompter;
+
+    /**
+     * Self-reference so code with no MainPanel passed in (e.g.
+     * MegaAPI.GENERATE_N_LINKS, which historically reached for
+     * MainPanelView.getINSTANCE().getMain_panel()) can get at the running
+     * instance without depending on the GUI singleton, which doesn't exist
+     * in headless/CLI mode. Exactly one MainPanel is ever constructed per
+     * process (GUI or CLI).
+     */
+    private static volatile MainPanel INSTANCE;
+
+    /**
+     * Set by CliMain.main() before anything else runs. Deliberately NOT the
+     * same thing as {@code GraphicsEnvironment.isHeadless()}: a real JFrame/
+     * JDialog cannot even be *constructed* under true AWT headless mode
+     * (Window's constructor throws HeadlessException immediately, not just
+     * on setVisible(true)) -- confirmed by testing -- but MainPanelView and
+     * the *Dialog classes are kept as inert never-shown objects (see the
+     * plan doc's Phase 3 revision), which requires AWT to NOT be headless
+     * (a virtual framebuffer / Xvfb provides that in Docker). So "should
+     * this prompt go to the console instead of a Swing dialog" has to be
+     * its own explicit flag, independent of whatever AWT thinks the display
+     * situation is -- otherwise a dialog could construct fine (because
+     * Xvfb satisfies AWT) and then block forever waiting for a click nobody
+     * watching the virtual display can ever make.
+     */
+    private static volatile boolean CLI_MODE = false;
+
+    public static void setCliMode(boolean cli_mode) {
+        CLI_MODE = cli_mode;
+    }
+
+    public static boolean isCliMode() {
+        return CLI_MODE;
+    }
+
+    public static MainPanel getInstance() {
+        return INSTANCE;
+    }
+
+    public UserPrompter getUserPrompter() {
+        return _user_prompter;
+    }
 
     public MainPanel() {
+
+        INSTANCE = this;
+
+        _user_prompter = new ConsoleUserPrompter();
 
         _new_version = null;
 
@@ -705,7 +766,13 @@ public final class MainPanel {
 
         THREAD_POOL.execute((_stream_supervisor = new StreamThrottlerSupervisor(_limit_download_speed ? _max_dl_speed * 1024 : 0, _limit_upload_speed ? _max_up_speed * 1024 : 0, THROTTLE_SLICE_SIZE)));
 
-        THREAD_POOL.execute((_clipboardspy = new ClipboardSpy()));
+        // ClipboardSpy needs a real system clipboard (Toolkit.getSystemClipboard()),
+        // which throws HeadlessException under -Djava.awt.headless=true (CLI/Docker).
+        if (!MainPanel.isCliMode()) {
+            THREAD_POOL.execute((_clipboardspy = new ClipboardSpy()));
+        } else {
+            _clipboardspy = null;
+        }
 
         try {
             _streamserver = new KissVideoStreamServer(this);
@@ -721,7 +788,12 @@ public final class MainPanel {
 
             if (_new_version != null) {
 
-                JOptionPane.showMessageDialog(getView(), LabelTranslatorSingleton.getInstance().translate("MegaBasterd NEW VERSION is available! -> ") + _new_version);
+                String msg = LabelTranslatorSingleton.getInstance().translate("mega-downloader NEW VERSION is available! -> ") + _new_version;
+                if (MainPanel.isCliMode()) {
+                    Logger.getLogger(MainPanel.class.getName()).log(Level.INFO, msg);
+                } else {
+                    JOptionPane.showMessageDialog(getView(), msg);
+                }
             }
         });
 
@@ -741,13 +813,7 @@ public final class MainPanel {
             MainPanel tthis = this;
 
             THREAD_POOL.execute(() -> {
-                // #URL extraction is now done inside SmartMegaProxyManager
-                // itself so multiple sources can be aggregated. (#753)
-                // Authenticator.setDefault() now happens inside the
-                // SmartMegaProxyManager constructor so the startup path and the
-                // runtime-enable path (MainPanelView) install it identically.
-                // (#778)
-                _proxy_manager = new SmartMegaProxyManager(tthis);
+                _proxy_manager = new VpnRotationManager(tthis);
             });
 
         } else {
@@ -1286,10 +1352,17 @@ public final class MainPanel {
             _megacrypter_reverse_port = MiscTools.parseIntOr(reverse_port, DEFAULT_MEGA_PROXY_PORT);
         }
 
-        String use_smart_proxy = selectSettingValue("smart_proxy");
+        // Reads the NEW "vpn_enabled" key, not the old "smart_proxy" one --
+        // isUse_smart_proxy()/_proxy_manager keep their historical names
+        // (191 references across SettingsDialog/QuotaRecoveryPanel/
+        // MainPanelView, all now-unreachable GUI code kept only as inert
+        // plumbing per the plan doc) so that GUI-only code keeps compiling
+        // unmodified, but the actual driving setting and the manager
+        // implementation behind them are ExpressVPN-based now (#Phase4).
+        String use_vpn = selectSettingValue("vpn_enabled");
 
-        if (use_smart_proxy != null) {
-            _use_smart_proxy = use_smart_proxy.equals("yes");
+        if (use_vpn != null) {
+            _use_smart_proxy = use_vpn.equals("yes");
         } else {
             _use_smart_proxy = DEFAULT_SMART_PROXY;
         }
@@ -1451,36 +1524,7 @@ public final class MainPanel {
 
         synchronized (DBTools.class) {
 
-            try {
-                DBTools.vaccum();
-            } catch (SQLException ex) {
-                Logger.getLogger(MainPanel.class.getName()).log(Level.SEVERE, ex.getMessage());
-            }
-
-            // Close the shared SQLite connection cleanly so the WAL is
-            // checkpointed before process exit / restart. Without this the
-            // -wal / -shm sidecar files can linger and a restart can race
-            // a still-held file handle (worst on Windows).
-            try {
-                SqliteSingleton.getInstance().shutdown();
-            } catch (Exception ex) {
-                Logger.getLogger(MainPanel.class.getName()).log(Level.WARNING, "SqliteSingleton shutdown: {0}", ex.getMessage());
-            }
-
-            // Release the single-instance file lock so a restart can re-acquire
-            // it immediately (Windows file-sharing semantics can otherwise delay
-            // the new instance and make the user see "click restart, nothing
-            // happens").
-            try {
-                if (_single_instance_lock != null) {
-                    _single_instance_lock.release();
-                }
-                if (_single_instance_raf != null) {
-                    _single_instance_raf.close();
-                }
-            } catch (IOException ex) {
-                Logger.getLogger(MainPanel.class.getName()).log(Level.FINE, "Releasing single-instance lock: {0}", ex.getMessage());
-            }
+            _cleanupForShutdown();
 
             if (restart) {
                 restartApplication();
@@ -1488,6 +1532,61 @@ public final class MainPanel {
                 exit(0);
             }
 
+        }
+    }
+
+    /**
+     * Same DB-vacuum / SQLite-shutdown / single-instance-lock-release
+     * sequence as {@link #byebyenow(boolean)}, extracted so
+     * {@link #shutdownForCli(int)} can reuse it without hardcoding exit(0)
+     * -- CLI callers need the process exit code to reflect whether the
+     * requested operation actually succeeded (for shell scripting / cron /
+     * systemd), which byebyenow's fixed exit(0) doesn't allow.
+     */
+    private void _cleanupForShutdown() {
+
+        try {
+            DBTools.vaccum();
+        } catch (SQLException ex) {
+            Logger.getLogger(MainPanel.class.getName()).log(Level.SEVERE, ex.getMessage());
+        }
+
+        // Close the shared SQLite connection cleanly so the WAL is
+        // checkpointed before process exit / restart. Without this the
+        // -wal / -shm sidecar files can linger and a restart can race
+        // a still-held file handle (worst on Windows).
+        try {
+            SqliteSingleton.getInstance().shutdown();
+        } catch (Exception ex) {
+            Logger.getLogger(MainPanel.class.getName()).log(Level.WARNING, "SqliteSingleton shutdown: {0}", ex.getMessage());
+        }
+
+        // Release the single-instance file lock so a restart can re-acquire
+        // it immediately (Windows file-sharing semantics can otherwise delay
+        // the new instance and make the user see "click restart, nothing
+        // happens").
+        try {
+            if (_single_instance_lock != null) {
+                _single_instance_lock.release();
+            }
+            if (_single_instance_raf != null) {
+                _single_instance_raf.close();
+            }
+        } catch (IOException ex) {
+            Logger.getLogger(MainPanel.class.getName()).log(Level.FINE, "Releasing single-instance lock: {0}", ex.getMessage());
+        }
+    }
+
+    /**
+     * CLI equivalent of {@link #byebyenow(boolean)}: same cleanup, but exits
+     * with the caller-supplied code instead of always 0, so a failed
+     * download/upload can make the process exit non-zero.
+     */
+    public void shutdownForCli(int exit_code) {
+        MiscTools.purgeFolderCache();
+        synchronized (DBTools.class) {
+            _cleanupForShutdown();
+            exit(exit_code);
         }
     }
 
@@ -1946,10 +2045,20 @@ public final class MainPanel {
                     while (!serverSocket.isClosed()) {
                         try {
                             try (Socket peer = serverSocket.accept()) {
-                                MiscTools.GUIRun(() -> {
-                                    getView().setExtendedState(NORMAL);
-                                    getView().setVisible(true);
-                                });
+                                // CLI/headless: no window to bring to front. Just
+                                // log that another instance tried to start --
+                                // the peer connection itself is enough to tell
+                                // it "we're already running" (checkAppIsRunning
+                                // returns true for it based on the failed lock).
+                                if (MainPanel.isCliMode()) {
+                                    Logger.getLogger(MainPanel.class.getName()).log(Level.INFO,
+                                            "Another MegaBasterd instance tried to start; this one is already running.");
+                                } else {
+                                    MiscTools.GUIRun(() -> {
+                                        getView().setExtendedState(NORMAL);
+                                        getView().setVisible(true);
+                                    });
+                                }
                             }
                         } catch (IOException ex1) {
                             if (!serverSocket.isClosed()) {
@@ -2164,7 +2273,7 @@ public final class MainPanel {
 
             _trayicon = new TrayIcon(getDefaultToolkit().getImage(getClass().getResource(ICON_FILE)), "MegaBasterd", null);
 
-            _trayicon.setToolTip("MegaBasterd " + VERSION);
+            _trayicon.setToolTip("mega-downloader " + VERSION);
 
             _trayicon.setImageAutoSize(true);
 

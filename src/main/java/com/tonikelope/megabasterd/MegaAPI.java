@@ -1,11 +1,6 @@
 /*
- __  __                  _               _               _ 
-|  \/  | ___  __ _  __ _| |__   __ _ ___| |_ ___ _ __ __| |
-| |\/| |/ _ \/ _` |/ _` | '_ \ / _` / __| __/ _ \ '__/ _` |
-| |  | |  __/ (_| | (_| | |_) | (_| \__ \ ||  __/ | | (_| |
-|_|  |_|\___|\__, |\__,_|_.__/ \__,_|___/\__\___|_|  \__,_|
-             |___/                                         
-© Perpetrated by tonikelope since 2016
+ * mega-downloader
+ * Originally MegaBasterd, © tonikelope since 2016. GPLv3.
  */
 package com.tonikelope.megabasterd;
 
@@ -540,11 +535,14 @@ public class MegaAPI implements Serializable {
 
     private String RAW_REQUEST(String request, URL url_api) throws MegaAPIException {
 
+        // current_smart_proxy: sentinel, non-null (holds "vpn") while the
+        // most recent /cs attempt went through ExpressVPN-protected
+        // routing. See ChunkDownloader for the same pattern/rationale.
         String response = null, current_smart_proxy = null;
 
         int mega_error = 0, http_error = 0, conta_error = 0, http_status;
 
-        boolean empty_response = false, smart_proxy_socks = false;
+        boolean empty_response = false;
 
         // X-Hashcash state for MEGA's anti-bot proof-of-work challenge.
         // When MEGA responds 402 with an X-Hashcash header, we solve the
@@ -559,104 +557,42 @@ public class MegaAPI implements Serializable {
 
         HttpsURLConnection con = null;
 
-        ArrayList<String> excluded_proxy_list = new ArrayList<>();
-
         do {
 
-            SmartMegaProxyManager proxy_manager = MainPanel.getProxy_manager();
+            VpnRotationManager vpn_manager = MainPanel.getProxy_manager();
 
             try {
 
-                // SmartProxy routing condition for the /cs endpoint. Was
-                // keyed off HTTP 509 only; -17 (MEGA EOVERQUOTA, in the JSON
-                // body of an HTTP 200) was never reachable here because the
-                // mega_error check further down lobbed it straight up as an
-                // exception. With the "synthesise 509 on -17 when SmartProxy
-                // is enabled" branch added below, http_error == 509 now also
+                // VPN routing condition for the /cs endpoint. Was keyed off
+                // HTTP 509 only; -17 (MEGA EOVERQUOTA, in the JSON body of an
+                // HTTP 200) was never reachable here because the mega_error
+                // check further down lobbed it straight up as an exception.
+                // With the "synthesise 509 on -17 when VPN routing is
+                // enabled" branch added below, http_error == 509 now also
                 // covers the JSON-body quota case, so we don't need an extra
                 // disjunct here. (#760)
-                if ((current_smart_proxy != null || http_error == 509) && MainPanel.isUse_smart_proxy() && proxy_manager != null && !MainPanel.isUse_proxy()) {
+                if ((current_smart_proxy != null || http_error == 509) && MainPanel.isUse_smart_proxy() && vpn_manager != null && !MainPanel.isUse_proxy()) {
 
                     if (current_smart_proxy != null && (http_error != 0 || empty_response)) {
-
-                        proxy_manager.blockProxy(current_smart_proxy, "HTTP " + String.valueOf(http_error));
-
-                        // getProxy() returns null when every proxy is banned /
-                        // excluded and the refresh-retry loop is exhausted.
-                        // Indexing [0]/[1] unconditionally NPEs the RAW_REQUEST
-                        // -- exactly during a 509 storm, which is when SmartProxy
-                        // is supposed to save us. Same defensive pattern as
-                        // ChunkDownloader.java:362+. (#752)
-                        String[] smart_proxy = proxy_manager.getProxy(excluded_proxy_list);
-                        if (smart_proxy != null) {
-                            current_smart_proxy = smart_proxy[0];
-                            smart_proxy_socks = smart_proxy[1].equals("socks");
-                        } else {
-                            LOG.log(Level.WARNING, "{0} SmartProxy exhausted (every proxy excluded/banned) -- falling back to direct for this /cs retry", _ctx());
-                            current_smart_proxy = null;
-                            // Reset the local excluded list so the next /cs
-                            // retry re-evaluates the full pool instead of
-                            // staying locked on direct (which here means a -17
-                            // EOVERQUOTA loop). Mirrors ChunkDownloader. (#778)
-                            excluded_proxy_list.clear();
-                        }
-
-                    } else if (current_smart_proxy == null) {
-
-                        String[] smart_proxy = proxy_manager.getProxy(excluded_proxy_list);
-                        if (smart_proxy != null) {
-                            current_smart_proxy = smart_proxy[0];
-                            smart_proxy_socks = smart_proxy[1].equals("socks");
-                        } else {
-                            LOG.log(Level.WARNING, "{0} SmartProxy exhausted (no usable proxy) -- falling back to direct for this /cs retry", _ctx());
-                            current_smart_proxy = null;
-                            // See sibling branch above -- reset so we don't
-                            // lock the /cs retry onto direct. (#778)
-                            excluded_proxy_list.clear();
-                        }
+                        vpn_manager.reportQuotaError(current_smart_proxy, "HTTP " + String.valueOf(http_error));
                     }
 
-                    if (current_smart_proxy != null) {
+                    current_smart_proxy = vpn_manager.ensureProtectiveRouting();
 
-                        // Parse the proxy entry defensively. A garbage entry
-                        // would otherwise throw NumberFormatException out of
-                        // the try/catch (only IOException/SSLException are
-                        // caught) and kill the RAW_REQUEST. Treat malformed
-                        // as banned + direct fallback for this retry. Mirrors
-                        // ChunkDownloader.java:400+. (#752)
-                        String[] proxy_info = current_smart_proxy.split(":");
-                        int proxy_port = -1;
-                        if (proxy_info.length == 2) {
-                            try {
-                                int p = Integer.parseInt(proxy_info[1]);
-                                if (p >= 1 && p <= 65535) {
-                                    proxy_port = p;
-                                }
-                            } catch (NumberFormatException ignore) {
-                            }
-                        }
-
-                        if (proxy_port < 0) {
-                            LOG.log(Level.WARNING, "{0} malformed smart proxy entry {1} -- banning + direct fallback", new Object[]{_ctx(), current_smart_proxy});
-                            proxy_manager.blockProxy(current_smart_proxy, "Malformed entry");
-                            excluded_proxy_list.add(current_smart_proxy);
-                            current_smart_proxy = null;
-                            con = (HttpsURLConnection) url_api.openConnection();
-                        } else {
-                            Proxy proxy = new Proxy(smart_proxy_socks ? Proxy.Type.SOCKS : Proxy.Type.HTTP, new InetSocketAddress(proxy_info[0], proxy_port));
-                            con = (HttpsURLConnection) url_api.openConnection(proxy);
-                        }
-
-                    } else {
-
-                        con = (HttpsURLConnection) url_api.openConnection();
+                    if (current_smart_proxy == null) {
+                        LOG.log(Level.WARNING, "{0} VPN connect failed/unavailable -- falling back to direct for this /cs retry", _ctx());
                     }
+
+                    // ExpressVPN routes ALL of the machine's traffic through
+                    // the tunnel at the OS level once connected -- no
+                    // java.net.Proxy object needed (or meaningful).
+                    con = (HttpsURLConnection) url_api.openConnection();
 
                 } else {
 
                     if (MainPanel.isUse_proxy()) {
 
-                        con = (HttpsURLConnection) url_api.openConnection(new Proxy(smart_proxy_socks ? Proxy.Type.SOCKS : Proxy.Type.HTTP, new InetSocketAddress(MainPanel.getProxy_host(), MainPanel.getProxy_port())));
+                        con = (HttpsURLConnection) url_api.openConnection(new Proxy(Proxy.Type.HTTP, new InetSocketAddress(MainPanel.getProxy_host(), MainPanel.getProxy_port())));
 
                         if (MainPanel.getProxy_user() != null && !"".equals(MainPanel.getProxy_user())) {
 
@@ -788,11 +724,11 @@ public class MegaAPI implements Serializable {
                                 // throws within ~30 attempts. (#760)
                                 if (mega_error == -17
                                         && MainPanel.isUse_smart_proxy()
-                                        && proxy_manager != null
+                                        && vpn_manager != null
                                         && !MainPanel.isUse_proxy()
                                         && conta_error < MAX_RAW_REQUEST_RETRIES) {
 
-                                    LOG.log(Level.WARNING, "{0} MEGA -17 EOVERQUOTA; SmartProxy enabled -- rotating /cs through proxy pool (attempt {1}/{2})",
+                                    LOG.log(Level.WARNING, "{0} MEGA -17 EOVERQUOTA; VPN routing enabled -- reconnecting ExpressVPN for /cs (attempt {1}/{2})",
                                             new Object[]{_ctx(), conta_error + 1, MAX_RAW_REQUEST_RETRIES});
 
                                     // Flip http_error so the routing /
@@ -1942,7 +1878,12 @@ public class MegaAPI implements Serializable {
         // loop entirely -- the surviving #F* originals are preserved via
         // malformed_originals + the caller's preprocess_global_queue, so
         // they'll be picked up on the next launch.
-        MainPanel main_panel = MainPanelView.getINSTANCE() != null ? MainPanelView.getINSTANCE().getMain_panel() : null;
+        //
+        // Goes through MainPanel.getInstance() rather than
+        // MainPanelView.getINSTANCE().getMain_panel() so this works whether
+        // or not a GUI is running -- there is no MainPanelView in headless
+        // (CLI/Docker) mode.
+        MainPanel main_panel = MainPanel.getInstance();
         boolean exiting = main_panel != null && main_panel.isExit();
 
         for (Map.Entry<String, ArrayList<String>> entry : map.entrySet()) {
@@ -1958,9 +1899,14 @@ public class MegaAPI implements Serializable {
             if (existsCachedFolderNodes(folder_parts[0])) {
                 final int[] rr = {-1};
                 final String fid = folder_parts[0];
-                MiscTools.GUIRunAndWait(() -> {
-                    rr[0] = JOptionPane.showConfirmDialog(MainPanelView.getINSTANCE(), I18n.tr("ui.confirm.folder_cache.message_with_id", fid), I18n.tr("ui.confirm.folder_cache.title"), JOptionPane.YES_NO_OPTION);
-                });
+                if (MainPanel.isCliMode()) {
+                    boolean use_cache = main_panel != null && main_panel.getUserPrompter().confirmYesNo(I18n.tr("ui.confirm.folder_cache.message_with_id", fid));
+                    rr[0] = use_cache ? JOptionPane.YES_OPTION : JOptionPane.NO_OPTION;
+                } else {
+                    MiscTools.GUIRunAndWait(() -> {
+                        rr[0] = JOptionPane.showConfirmDialog(MainPanelView.getINSTANCE(), I18n.tr("ui.confirm.folder_cache.message_with_id", fid), I18n.tr("ui.confirm.folder_cache.title"), JOptionPane.YES_NO_OPTION);
+                    });
+                }
                 r = rr[0];
             }
 

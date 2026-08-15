@@ -1,11 +1,6 @@
 /*
- __  __                  _               _               _ 
-|  \/  | ___  __ _  __ _| |__   __ _ ___| |_ ___ _ __ __| |
-| |\/| |/ _ \/ _` |/ _` | '_ \ / _` / __| __/ _ \ '__/ _` |
-| |  | |  __/ (_| | (_| | |_) | (_| \__ \ ||  __/ | | (_| |
-|_|  |_|\___|\__, |\__,_|_.__/ \__,_|___/\__\___|_|  \__,_|
-             |___/                                         
-© Perpetrated by tonikelope since 2016
+ * mega-downloader
+ * Originally MegaBasterd, © tonikelope since 2016. GPLv3.
  */
 package com.tonikelope.megabasterd;
 
@@ -21,7 +16,6 @@ import java.net.InetSocketAddress;
 import java.net.Proxy;
 import java.net.SocketTimeoutException;
 import java.net.URL;
-import java.util.ArrayList;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -32,12 +26,12 @@ import java.util.logging.Logger;
 public class ChunkDownloader implements Runnable, SecureSingleThreadNotifiable {
 
     /**
-     * Legacy hard-coded post-509 SmartProxy window. Now lives in
-     * SmartMegaProxyManager as a configurable; this constant is kept as the
-     * ultimate fallback when no proxy manager is wired (e.g. very early
+     * Legacy hard-coded post-509 recheck window. Now lives in
+     * VpnRotationManager as a configurable; this constant is kept as the
+     * ultimate fallback when no VPN manager is wired (e.g. very early
      * startup) so the original semantics hold. (#751 / C4)
      */
-    public static final int SMART_PROXY_RECHECK_509_TIME = SmartMegaProxyManager.RECHECK_509_WINDOW_DEFAULT;
+    public static final int SMART_PROXY_RECHECK_509_TIME = VpnRotationManager.RECHECK_509_WINDOW_DEFAULT;
     private static final Logger LOG = Logger.getLogger(ChunkDownloader.class.getName());
 
     /**
@@ -99,7 +93,6 @@ public class ChunkDownloader implements Runnable, SecureSingleThreadNotifiable {
     private volatile boolean _error_wait;
     private volatile boolean _chunk_exception;
     private volatile boolean _notified;
-    private final ArrayList<String> _excluded_proxy_list;
     private volatile boolean _reset_current_chunk;
     private volatile InputStream _chunk_inputstream = null;
 
@@ -147,14 +140,23 @@ public class ChunkDownloader implements Runnable, SecureSingleThreadNotifiable {
      */
     private volatile boolean _wake_from_backoff = false;
 
+    /**
+     * Sentinel: non-null (holds the literal "vpn") while this worker's most
+     * recent chunk attempt went through ExpressVPN-protected routing, null
+     * while direct. Kept as a String (not a boolean) and named after its
+     * SmartMegaProxyManager-era predecessor deliberately -- every null-check
+     * on this field elsewhere in the file ("am I currently routed
+     * specially?") reads correctly unchanged; only the code that decides
+     * WHAT to route through changed. (#Phase4)
+     */
     private String _current_smart_proxy;
 
     /**
      * Break this worker out of its current 509 / network exp-backoff sleep on
      * the next 1 s tick so it can re-evaluate routing. Called from
-     * MainPanelView after the user enables SmartProxy at runtime -- otherwise
+     * MainPanelView after the user enables VPN routing at runtime -- otherwise
      * the worker would sleep for the full exp-backoff (which on retry 5+ runs
-     * into minutes) before noticing the proxy pool is now available. (#758)
+     * into minutes) before noticing VPN is now available. (#758)
      */
     public void wakeFromBackoff() {
         _wake_from_backoff = true;
@@ -189,7 +191,6 @@ public class ChunkDownloader implements Runnable, SecureSingleThreadNotifiable {
         _id = id;
         _download = download;
         _current_smart_proxy = null;
-        _excluded_proxy_list = new ArrayList<>();
         _error_wait = false;
         _reset_current_chunk = false;
 
@@ -380,24 +381,23 @@ public class ChunkDownloader implements Runnable, SecureSingleThreadNotifiable {
 
             int http_error = 0, http_status = -1, conta_error = 0;
 
-            boolean chunk_error = false, timeout = false, smart_proxy_socks = false;
+            boolean chunk_error = false, timeout = false;
 
             String worker_url = null;
 
             byte[] buffer = new byte[DEFAULT_BYTE_BUFFER_SIZE];
 
             // Refreshed each loop iteration below: capturing once was a stale
-            // reference bug -- if SmartProxy was OFF at worker startup,
-            // proxy_manager stayed null even after the user enabled SmartProxy
-            // at runtime, and the routing path at line ~394 onwards would
-            // either NPE on getProxy() / blockProxy() or never switch to the
-            // proxy pool. Re-read every iteration so runtime toggles are
-            // visible on the next chunk attempt. (#758)
-            SmartMegaProxyManager proxy_manager = MainPanel.getProxy_manager();
+            // reference bug -- if VPN routing was OFF at worker startup,
+            // vpn_manager stayed null even after the user enabled it at
+            // runtime, and the routing path below would either NPE or never
+            // switch to protected routing. Re-read every iteration so
+            // runtime toggles are visible on the next chunk attempt. (#758)
+            VpnRotationManager vpn_manager = MainPanel.getProxy_manager();
 
             while (!_download.getMain_panel().isExit() && !_exit && !_download.isStopped()) {
 
-                proxy_manager = MainPanel.getProxy_manager();
+                vpn_manager = MainPanel.getProxy_manager();
 
                 if (_download.isPaused() && !_download.isStopped() && !_download.getChunkmanager().isExit()) {
 
@@ -406,7 +406,7 @@ public class ChunkDownloader implements Runnable, SecureSingleThreadNotifiable {
                     secureWait();
                 }
 
-                long recheck_window_ms = (proxy_manager != null ? proxy_manager.getRecheck_509_window() : SMART_PROXY_RECHECK_509_TIME) * 1000L;
+                long recheck_window_ms = (vpn_manager != null ? vpn_manager.getRecheck509Window() : SMART_PROXY_RECHECK_509_TIME) * 1000L;
 
                 // Stamp the SHARED 509 timestamp at Download level so every
                 // worker of the same download switches to SmartProxy mode in
@@ -440,73 +440,30 @@ public class ChunkDownloader implements Runnable, SecureSingleThreadNotifiable {
                 }
 
                 long dl_509_ts_check = _download.get509BurstTimestamp();
-                // proxy_manager null-guard hoisted to the outer AND: previously
+                // vpn_manager null-guard hoisted to the outer AND: previously
                 // it lived only inside the FORCE branch of the inner OR, so a
                 // 509 or post-509 recheck window could enter this block with
-                // proxy_manager == null and NPE at proxy_manager.getProxy() /
-                // blockProxy() further down. With the re-read at the top of
-                // the while loop this should be rare, but the static-field
-                // reads (isUse_smart_proxy + getProxy_manager) are NOT atomic
-                // so there is still a microscopic window during runtime toggle.
-                // Belt-and-braces. (#758)
-                if (MainPanel.isUse_smart_proxy() && proxy_manager != null && (proxy_manager.isForce_smart_proxy() || _current_smart_proxy != null || http_error == 509 || (dl_509_ts_check != -1 && dl_509_ts_check + recheck_window_ms > System.currentTimeMillis())) && !MainPanel.isUse_proxy()) {
+                // vpn_manager == null and NPE further down. With the re-read
+                // at the top of the while loop this should be rare, but the
+                // static-field reads (isUse_smart_proxy + getProxy_manager)
+                // are NOT atomic so there is still a microscopic window
+                // during runtime toggle. Belt-and-braces. (#758)
+                if (MainPanel.isUse_smart_proxy() && vpn_manager != null && (vpn_manager.isForceVpn() || _current_smart_proxy != null || http_error == 509 || (dl_509_ts_check != -1 && dl_509_ts_check + recheck_window_ms > System.currentTimeMillis())) && !MainPanel.isUse_proxy()) {
 
                     if (_current_smart_proxy != null && chunk_error) {
 
-                        if (!timeout && http_error != 429) {
-                            proxy_manager.blockProxy(_current_smart_proxy, timeout ? "TIMEOUT!" : "HTTP " + String.valueOf(http_error));
-                        } else if (timeout) {
-                            _excluded_proxy_list.add(_current_smart_proxy);
-                            LOG.log(Level.WARNING, "{0} Worker [{1}] PROXY {2} TIMEOUT", new Object[]{Thread.currentThread().getName(), _id, _current_smart_proxy});
-                        } else {
-                            _excluded_proxy_list.add(_current_smart_proxy);
-                            LOG.log(Level.WARNING, "{0} Worker [{1}] PROXY {2} TOO MANY CONNECTIONS", new Object[]{Thread.currentThread().getName(), _id, _current_smart_proxy});
-                        }
-
-                        // getProxy() returns null when every proxy is excluded
-                        // or banned and the refresh-retry loop exhausted itself.
-                        // Previously we indexed [0]/[1] unconditionally and NPE'd
-                        // the worker -- exactly during a 509 storm, when smart
-                        // proxy is supposed to bail us out. Null now means
-                        // "fall back to direct for this chunk" (the path below
-                        // already handles _current_smart_proxy == null). (#751)
-                        String[] smart_proxy = proxy_manager.getProxy(_excluded_proxy_list);
-
-                        if (smart_proxy != null) {
-                            _current_smart_proxy = smart_proxy[0];
-                            smart_proxy_socks = smart_proxy[1].equals("socks");
-                        } else {
-                            LOG.log(Level.WARNING, "{0} Worker [{1}] SmartProxy exhausted (every proxy excluded/banned) -- falling back to direct", new Object[]{Thread.currentThread().getName(), _id});
-                            _current_smart_proxy = null;
-                            // Pool exhausted for THIS worker: every proxy is in
-                            // our local excluded list (timeouts / 429s never get
-                            // blockProxy'd, only excluded, and the list was only
-                            // ever cleared on a successful chunk). In FORCE mode
-                            // with a flaky pool that meant the worker locked
-                            // itself into direct -> 509 -> exp-backoff forever.
-                            // Reset so the next attempt re-evaluates the full
-                            // pool and gives timed-out-but-recovered proxies
-                            // another chance (hard-failed ones stay banned by
-                            // ban_time in pickProxy). (#778)
-                            _excluded_proxy_list.clear();
-                        }
-
-                    } else if (_current_smart_proxy == null) {
-
-                        String[] smart_proxy = proxy_manager.getProxy(_excluded_proxy_list);
-
-                        if (smart_proxy != null) {
-                            _current_smart_proxy = smart_proxy[0];
-                            smart_proxy_socks = smart_proxy[1].equals("socks");
-                        } else {
-                            LOG.log(Level.WARNING, "{0} Worker [{1}] SmartProxy exhausted (no usable proxy) -- falling back to direct", new Object[]{Thread.currentThread().getName(), _id});
-                            _current_smart_proxy = null;
-                            // See the sibling branch above: reset the local
-                            // excluded list so we don't lock into direct. (#778)
-                            _excluded_proxy_list.clear();
-                        }
-
+                        // Previous attempt failed while VPN-protected --
+                        // rotate to a different ExpressVPN location rather
+                        // than handing out a different proxy per worker (not
+                        // possible with a single machine-wide VPN exit IP).
+                        // Passing the location THIS worker observed (not
+                        // just "rotate") lets the manager collapse the
+                        // thundering herd of concurrent workers that all
+                        // hit the same IP-wide 509 into a single reconnect.
+                        vpn_manager.reportQuotaError(_current_smart_proxy, timeout ? "TIMEOUT!" : "HTTP " + String.valueOf(http_error));
                     }
+
+                    _current_smart_proxy = vpn_manager.ensureProtectiveRouting();
 
                     if (_current_smart_proxy != null) {
 
@@ -514,48 +471,18 @@ public class ChunkDownloader implements Runnable, SecureSingleThreadNotifiable {
                             getDownload().enableTurboMode();
                         }
 
-                        // Parse the proxy entry defensively. Was a raw
-                        // Integer.parseInt(proxy_info[1]) which threw
-                        // NumberFormatException -- killing the worker -- on any
-                        // garbage entry that slipped through the regex (or any
-                        // future format change in the remote-fetched list).
-                        // Treat malformed entries as banned + skip to direct
-                        // fallback for this chunk; getProxy() will avoid the
-                        // bad entry next round. (#751)
-                        String[] proxy_info = _current_smart_proxy.split(":");
-                        int proxy_port = -1;
-                        if (proxy_info.length == 2) {
-                            try {
-                                int p = Integer.parseInt(proxy_info[1]);
-                                if (p >= 1 && p <= 65535) {
-                                    proxy_port = p;
-                                }
-                            } catch (NumberFormatException ignore) {
-                            }
-                        }
-
-                        if (proxy_port < 0) {
-                            LOG.log(Level.WARNING, "{0} Worker [{1}] malformed smart proxy entry {2} -- banning + direct fallback",
-                                    new Object[]{Thread.currentThread().getName(), _id, _current_smart_proxy});
-                            proxy_manager.blockProxy(_current_smart_proxy, "Malformed entry");
-                            _excluded_proxy_list.add(_current_smart_proxy);
-                            _current_smart_proxy = null;
-                            URL url = new URL(chunk_url);
-                            con = (HttpURLConnection) url.openConnection();
-                        } else {
-                            Proxy proxy = new Proxy(smart_proxy_socks ? Proxy.Type.SOCKS : Proxy.Type.HTTP, new InetSocketAddress(proxy_info[0], proxy_port));
-                            URL url = new URL(chunk_url);
-                            con = (HttpURLConnection) url.openConnection(proxy);
-                        }
-
                     } else {
 
-                        LOG.log(Level.INFO, "{0} Worker [{1}] SmartProxy getProxy returned NULL! {2}", new Object[]{Thread.currentThread().getName(), _id, _download.getFile_name()});
-
-                        URL url = new URL(chunk_url);
-
-                        con = (HttpURLConnection) url.openConnection();
+                        LOG.log(Level.INFO, "{0} Worker [{1}] VPN connect failed/unavailable -- falling back to direct", new Object[]{Thread.currentThread().getName(), _id});
                     }
+
+                    // Once ExpressVPN is connected it routes ALL of the
+                    // machine's traffic through the tunnel at the OS level --
+                    // unlike the old proxy pool, no java.net.Proxy object is
+                    // needed (or even meaningful) per request.
+                    URL url = new URL(chunk_url);
+
+                    con = (HttpURLConnection) url.openConnection();
 
                 } else {
 
@@ -565,7 +492,7 @@ public class ChunkDownloader implements Runnable, SecureSingleThreadNotifiable {
 
                         _current_smart_proxy = null;
 
-                        con = (HttpURLConnection) url.openConnection(new Proxy(smart_proxy_socks ? Proxy.Type.SOCKS : Proxy.Type.HTTP, new InetSocketAddress(MainPanel.getProxy_host(), MainPanel.getProxy_port())));
+                        con = (HttpURLConnection) url.openConnection(new Proxy(Proxy.Type.HTTP, new InetSocketAddress(MainPanel.getProxy_host(), MainPanel.getProxy_port())));
 
                         if (MainPanel.getProxy_user() != null && !"".equals(MainPanel.getProxy_user())) {
 
@@ -578,9 +505,9 @@ public class ChunkDownloader implements Runnable, SecureSingleThreadNotifiable {
                     }
                 }
 
-                if (_current_smart_proxy != null && proxy_manager != null) {
-                    con.setConnectTimeout(proxy_manager.getProxy_timeout());
-                    con.setReadTimeout(proxy_manager.getProxy_timeout() * 2);
+                if (_current_smart_proxy != null && vpn_manager != null) {
+                    con.setConnectTimeout(vpn_manager.getConnectTimeoutMs());
+                    con.setReadTimeout(vpn_manager.getConnectTimeoutMs() * 2);
                 } else {
                     con.setConnectTimeout(Transference.HTTP_CONNECT_TIMEOUT);
                     con.setReadTimeout(Transference.HTTP_READ_TIMEOUT);
@@ -716,7 +643,7 @@ public class ChunkDownloader implements Runnable, SecureSingleThreadNotifiable {
 
                         if (chunk_reads == chunk_size) {
 
-                            LOG.log(Level.INFO, "{0} Worker [{1}] has OK DOWNLOADED (" + (_current_smart_proxy != null ? "smartproxy" : "direct") + ") chunk [{2}]! {3}", new Object[]{Thread.currentThread().getName(), _id, chunk_id, _download.getFile_name()});
+                            LOG.log(Level.INFO, "{0} Worker [{1}] has OK DOWNLOADED (" + (_current_smart_proxy != null ? "vpn:" + _current_smart_proxy : "direct") + ") chunk [{2}]! {3}", new Object[]{Thread.currentThread().getName(), _id, chunk_id, _download.getFile_name()});
 
                             boolean rename_failed = false;
 
@@ -805,8 +732,6 @@ public class ChunkDownloader implements Runnable, SecureSingleThreadNotifiable {
                                 }
                             }
 
-                            _excluded_proxy_list.clear();
-
                             _download.getChunkmanager().secureNotify();
                         }
                     }
@@ -835,7 +760,7 @@ public class ChunkDownloader implements Runnable, SecureSingleThreadNotifiable {
 
                     if (chunk_error) {
 
-                        LOG.log(Level.INFO, "{0} Worker [{1}] has FAILED downloading (" + (_current_smart_proxy != null ? "smartproxy" : "direct") + ") chunk [{2}]! {3}", new Object[]{Thread.currentThread().getName(), _id, chunk_id, _download.getFile_name()});
+                        LOG.log(Level.INFO, "{0} Worker [{1}] has FAILED downloading (" + (_current_smart_proxy != null ? "vpn:" + _current_smart_proxy : "direct") + ") chunk [{2}]! {3}", new Object[]{Thread.currentThread().getName(), _id, chunk_id, _download.getFile_name()});
 
                         if (tmp_chunk_file != null && tmp_chunk_file.exists()) {
                             tmp_chunk_file.delete();
@@ -867,9 +792,13 @@ public class ChunkDownloader implements Runnable, SecureSingleThreadNotifiable {
                             setExit(true);
                         }
 
-                    } else if (proxy_manager != null && proxy_manager.isReset_slot_proxy()) {
-                        _current_smart_proxy = null;
                     }
+                    // (No VPN equivalent of the old "reset_slot_proxy" knob:
+                    // that forced a fresh proxy pick on every successful
+                    // chunk, which for a single machine-wide VPN connection
+                    // would mean reconnecting after every chunk -- expensive
+                    // and actively harmful. Staying on a working location is
+                    // strictly better.)
 
                     if (_reset_current_chunk) {
                         LOG.log(Level.WARNING, "Worker [{0}] FORCE RESET CHUNK [{1}]! {2}", new Object[]{_id, chunk_id, _download.getFile_name()});
