@@ -35,16 +35,19 @@ FROM eclipse-temurin:17-jre-jammy AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
 
 # xvfb/ffmpeg/sqlite3/ca-certificates are needed by mega-downloader itself
-# (verified). procps/psmisc/libatomic1/libglib2.0-0/libbrotli1 are exactly
-# what ExpressVPN's own .run installer's dependency checker asks for
-# (confirmed against a real install attempt -- it refuses to proceed
-# without `killall` (psmisc) and libatomic, and lists the rest as part of
-# the same apt-get line). iptables/network-manager/libnl-genl-3-200 are
-# ExpressVPN's commonly-cited *runtime* Linux dependencies (its CLI shells
-# out to nmcli/iptables for DNS and firewall rules) -- still best-effort,
-# not yet confirmed since the install itself hadn't succeeded when those
-# were chosen. If `expressvpn activate`/`connect` complains about a
-# missing tool once the install succeeds, install it here too.
+# (verified). procps/psmisc/libatomic1/libglib2.0-0/libbrotli1/
+# libnl-genl-3-200/libnl-route-3-200/dbus are exactly what ExpressVPN's own
+# .run installer's dependency checker and internal `apt-get install` calls
+# have demanded across real install attempts -- iptables/network-manager
+# are its commonly-cited *runtime* deps (its CLI shells out to nmcli/
+# iptables for DNS and firewall rules), still best-effort.
+#
+# Deliberately NOT `rm -rf /var/lib/apt/lists/*` here (moved to after the
+# ExpressVPN install below instead): the installer shells out to its own
+# `apt-get install` for at least one additional dependency
+# (libnl-route-3-200), and an empty package index at that point fails with
+# "Unable to locate package" even though the package exists -- confirmed
+# on a real build attempt.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         xvfb \
         ffmpeg \
@@ -53,12 +56,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         iptables \
         network-manager \
         libnl-genl-3-200 \
+        libnl-route-3-200 \
         procps \
         psmisc \
         libatomic1 \
         libglib2.0-0 \
         libbrotli1 \
-    && rm -rf /var/lib/apt/lists/*
+        dbus
 
 # ExpressVPN .run installer, supplied at build time: place the file you
 # downloaded from your ExpressVPN account next to this Dockerfile (default
@@ -70,11 +74,36 @@ COPY ${EXPRESSVPN_RUN} /tmp/expressvpn.run
 # are commonly interactive (EULA prompt, etc.), which a `docker build` step
 # has no TTY to answer. `yes |` auto-answers any yes/no prompt with "y" --
 # confirmed working against the real ExpressVPN installer (it gets past
-# the archive-extraction/EULA stage fine; the installer's own runtime
-# dependency check is what the apt-get list above satisfies).
-RUN chmod +x /tmp/expressvpn.run \
+# the archive-extraction/EULA stage fine).
+#
+# The installer also tries to register/enable a systemd service
+# (expressvpn-service) via systemctl/D-Bus, which fails outright in a
+# plain container -- confirmed on a real build attempt ("System has not
+# been booted with systemd as init system... Failed to connect to bus").
+# Every other install step (copying files, adding groups, setting
+# permissions) succeeds; only that last systemd-registration step doesn't,
+# and it aborts the whole script when it fails. Two combined workarounds,
+# both scoped to just this RUN layer (a background dbus-daemon started
+# here does NOT survive into later layers, so it must run in the same
+# instruction that needs it):
+#   1. /run/systemd/system is systemd's own on-disk signal that "systemd
+#      is the running init" (sd_booted()) -- satisfies tools that only
+#      check for this before deciding whether to attempt anything further.
+#   2. A real (temporary, build-time-only) system D-Bus daemon, in case the
+#      installer needs an actual bus connection, not just the marker.
+# Neither makes systemd actually manage the expressvpn-service unit --
+# docker-entrypoint.sh starts the expressvpnd daemon directly instead,
+# which is what actually matters at runtime. This is a best-effort fix
+# based on the exact error text the installer produced, not a confirmed
+# working combination -- if the build still fails here, the next error
+# will narrow it down further.
+RUN mkdir -p /run/dbus /run/systemd/system \
+    && dbus-daemon --system --fork \
+    && sleep 1 \
+    && chmod +x /tmp/expressvpn.run \
     && (yes | /tmp/expressvpn.run) \
-    && rm -f /tmp/expressvpn.run
+    && rm -f /tmp/expressvpn.run \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
