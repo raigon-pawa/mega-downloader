@@ -1,4 +1,4 @@
-# MegaBasterd CLI, containerized for a headless cloud VM.
+# mega-downloader CLI, containerized for a headless cloud VM.
 #
 # IMPORTANT, empirically confirmed during development: this image does NOT
 # run with java.awt.headless=true. MainPanelView and the Settings dialogs
@@ -34,13 +34,17 @@ FROM eclipse-temurin:17-jre-jammy AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# xvfb/ffmpeg/sqlite3/ca-certificates are needed by MegaBasterd itself
-# (verified). iptables/network-manager/libnl-genl-3-200 are ExpressVPN's
-# commonly-cited Linux dependencies (its CLI shells out to nmcli/iptables
-# for DNS and firewall rules) -- best-effort, NOT verified against a real
-# ExpressVPN package in this environment (none was available to test
-# against). If `expressvpn activate`/`connect` complains about a missing
-# tool, install it here.
+# xvfb/ffmpeg/sqlite3/ca-certificates are needed by mega-downloader itself
+# (verified). procps/psmisc/libatomic1/libglib2.0-0/libbrotli1 are exactly
+# what ExpressVPN's own .run installer's dependency checker asks for
+# (confirmed against a real install attempt -- it refuses to proceed
+# without `killall` (psmisc) and libatomic, and lists the rest as part of
+# the same apt-get line). iptables/network-manager/libnl-genl-3-200 are
+# ExpressVPN's commonly-cited *runtime* Linux dependencies (its CLI shells
+# out to nmcli/iptables for DNS and firewall rules) -- still best-effort,
+# not yet confirmed since the install itself hadn't succeeded when those
+# were chosen. If `expressvpn activate`/`connect` complains about a
+# missing tool once the install succeeds, install it here too.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         xvfb \
         ffmpeg \
@@ -49,6 +53,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         iptables \
         network-manager \
         libnl-genl-3-200 \
+        procps \
+        psmisc \
+        libatomic1 \
+        libglib2.0-0 \
+        libbrotli1 \
     && rm -rf /var/lib/apt/lists/*
 
 # ExpressVPN .run installer, supplied at build time: place the file you
@@ -59,20 +68,17 @@ ARG EXPRESSVPN_RUN=expressvpn.run
 COPY ${EXPRESSVPN_RUN} /tmp/expressvpn.run
 # .run installers are self-extracting shell scripts (makeself-style) and
 # are commonly interactive (EULA prompt, etc.), which a `docker build` step
-# has no TTY to answer. `yes |` auto-answers any yes/no prompt with "y".
-# UNTESTED against the real ExpressVPN installer in this environment (none
-# was available) -- if the build fails here, run
-# `sh expressvpn.run --help` (or just `sh expressvpn.run` interactively)
-# locally first to find its actual non-interactive/silent-install flag
-# (often something like --quiet, --accept-eula, or -y) and use that
-# instead of piping `yes`.
+# has no TTY to answer. `yes |` auto-answers any yes/no prompt with "y" --
+# confirmed working against the real ExpressVPN installer (it gets past
+# the archive-extraction/EULA stage fine; the installer's own runtime
+# dependency check is what the apt-get list above satisfies).
 RUN chmod +x /tmp/expressvpn.run \
     && (yes | /tmp/expressvpn.run) \
     && rm -f /tmp/expressvpn.run
 
 WORKDIR /app
 
-COPY --from=build /build/target/MegaBasterd-*-jar-with-dependencies.jar /app/megabasterd.jar
+COPY --from=build /build/target/mega-downloader-*-jar-with-dependencies.jar /app/mega-downloader.jar
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh
 

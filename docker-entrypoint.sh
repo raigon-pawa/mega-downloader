@@ -1,5 +1,5 @@
 #!/bin/sh
-# Entrypoint for the MegaBasterd CLI container.
+# Entrypoint for the mega-downloader CLI container.
 #
 # Starts a virtual framebuffer (see the Dockerfile comment for why: the app
 # keeps MainPanelView/dialogs as never-shown objects instead of deleting
@@ -56,6 +56,6 @@ fi
 # Backgrounded + waited-on (not exec'd) so the trap above can intervene on
 # SIGTERM/SIGINT; `wait` also propagates java's own exit code as this
 # script's exit code, same as exec would have.
-java -jar /app/megabasterd.jar "$@" &
+java -jar /app/mega-downloader.jar "$@" &
 JAVA_PID=$!
 wait "$JAVA_PID"
