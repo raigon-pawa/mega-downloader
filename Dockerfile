@@ -35,7 +35,20 @@ FROM eclipse-temurin:17-jre-jammy AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
 
 # xvfb/ffmpeg/sqlite3/ca-certificates are needed by mega-downloader itself
-# (verified). procps/psmisc/libatomic1/libglib2.0-0/libbrotli1/
+# (verified). libxtst6/libxi6/libxrender1/libxext6/libxrandr2/fontconfig/
+# fonts-dejavu-core are ALSO needed by mega-downloader itself -- confirmed
+# by a real UnsatisfiedLinkError: even though nothing in the CLI path ever
+# shows a window, MainPanel's static initializer builds a throwaway JLabel
+# just to read a default font (GUI_FONT = new JLabel().getFont()), and
+# that alone triggers java.awt.Toolkit's static init, which dlopen()s the
+# JRE's native AWT bridge library (libawt_xawt.so) -- that native library
+# has hard shared-library dependencies on several X11 *client* libraries
+# that must be physically installed regardless of whether Xvfb is running;
+# Xvfb only supplies something to connect to over the X11 protocol, not
+# the client-side .so files the JRE itself links against. This is a
+# well-documented "headless-ish Java/Swing in a minimal container" class
+# of issue, not project-specific guesswork like the ExpressVPN packages
+# below. procps/psmisc/libatomic1/libglib2.0-0/libbrotli1/
 # libnl-genl-3-200/libnl-route-3-200/dbus are exactly what ExpressVPN's own
 # .run installer's dependency checker and internal `apt-get install` calls
 # have demanded across real install attempts -- iptables/network-manager
@@ -53,6 +66,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ffmpeg \
         sqlite3 \
         ca-certificates \
+        libxtst6 \
+        libxi6 \
+        libxrender1 \
+        libxext6 \
+        libxrandr2 \
+        fontconfig \
+        fonts-dejavu-core \
         iptables \
         network-manager \
         libnl-genl-3-200 \
@@ -105,6 +125,15 @@ RUN mkdir -p /run/dbus /run/systemd/system \
     && (yes | /tmp/expressvpn.run) \
     && rm -f /tmp/expressvpn.run \
     && rm -rf /var/lib/apt/lists/*
+
+# The installer puts its binaries under /opt/expressvpn/bin (confirmed --
+# the install log references /opt/expressvpn/bin/expressvpn-unbound) but
+# nothing makes that visible on PATH for a plain non-login shell like
+# docker-entrypoint.sh (installers commonly rely on /etc/profile.d/, which
+# only login/interactive shells source) -- confirmed by a real "expressvpn:
+# not found" at runtime. Set PATH globally instead of patching the
+# entrypoint script, so it's correct for any shell in the image.
+ENV PATH="/opt/expressvpn/bin:${PATH}"
 
 WORKDIR /app
 
