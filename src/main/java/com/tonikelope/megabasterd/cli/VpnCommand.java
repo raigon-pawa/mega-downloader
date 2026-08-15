@@ -55,7 +55,7 @@ public class VpnCommand {
                 MainPanel.setProxy_manager(vpn);
             }
             String location = vpn.ensureProtectiveRouting();
-            System.out.println(location != null ? "Connected (" + location + ")" : "Failed to connect -- check that the expressvpn CLI is installed, activated, and on PATH.");
+            System.out.println(location != null ? "Connected (" + location + ")" : "Failed to connect -- check that expressvpnctl is installed, activated, and on PATH.");
             int exit_code = location != null ? 0 : 1;
             main_panel.shutdownForCli(exit_code);
             return exit_code;

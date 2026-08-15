@@ -27,29 +27,27 @@ cleanup() {
         kill "$JAVA_PID" 2>/dev/null || true
     fi
     if [ -n "$EXPRESSVPN_ACTIVATION_CODE" ]; then
-        expressvpn disconnect >/dev/null 2>&1 || true
+        expressvpnctl disconnect >/dev/null 2>&1 || true
     fi
     kill "$XVFB_PID" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
 # --- ExpressVPN daemon + activation ---
-# NOTE: the ExpressVPN Linux app normally starts its background daemon
-# (expressvpnd) via systemd, which doesn't run inside a plain container.
-# This starts it directly instead. The exact binary name/path can vary by
-# version -- if `expressvpn status` fails below, find where the .run
-# installer actually put it (`find / -iname 'expressvpnd*' 2>/dev/null`,
-# commonly /usr/sbin or /opt/expressvpn) and adjust this line. Untested
-# against a real ExpressVPN install in this environment (no installer or
-# activation code was available) -- verify this against your own install.
-if command -v expressvpnd >/dev/null 2>&1; then
-    expressvpnd >/tmp/expressvpnd.log 2>&1 &
+# Confirmed via a real install (v14.2.0): the CLI control tool is
+# `expressvpnctl` (not the classic `expressvpn`), and the daemon binary is
+# `expressvpn-daemon` (not `expressvpnd`) -- both under /opt/expressvpn/bin,
+# which the Dockerfile adds to PATH; expressvpnctl is also symlinked at
+# /usr/local/bin/expressvpnctl. The daemon normally starts via systemd,
+# which doesn't run inside a plain container, so start it directly instead.
+if command -v expressvpn-daemon >/dev/null 2>&1; then
+    expressvpn-daemon >/tmp/expressvpn-daemon.log 2>&1 &
     sleep 2
 fi
 
 if [ -n "$EXPRESSVPN_ACTIVATION_CODE" ]; then
     echo "Activating ExpressVPN..."
-    expressvpn activate "$EXPRESSVPN_ACTIVATION_CODE" || \
+    expressvpnctl activate "$EXPRESSVPN_ACTIVATION_CODE" || \
         echo "WARNING: ExpressVPN activation failed or was already active -- continuing anyway (VPN-dependent commands will fail if it's genuinely not activated)."
 fi
 

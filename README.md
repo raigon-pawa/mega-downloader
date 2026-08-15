@@ -33,10 +33,10 @@ Configured the same way as any other setting, via `settings set <key> <value>`:
 | `force_vpn` | `yes` = stay connected the whole run; `no` = connect reactively on a MEGA 509/quota error | `no` |
 | `vpn_locations` | Comma-separated ExpressVPN location codes to rotate through, e.g. `usa,uk,germany`. Leave unset/empty to let ExpressVPN pick ("smart location") | *(smart)* |
 | `vpn_cooldown` | Seconds before a just-used/failed location is eligible again | `300` |
-| `vpn_connect_timeout` | Max seconds to wait for `expressvpn connect` before falling back to a direct connection | `30` |
+| `vpn_connect_timeout` | Max seconds to wait for `expressvpnctl connect` before falling back to a direct connection | `30` |
 | `vpn_509_recheck_window` | How long (seconds) a download stays in "VPN-protected" mode after its last 509, even if a chunk succeeds in between | `3600` |
 
-Requires the `expressvpn` CLI to be installed, activated, and on `PATH` (the Docker image handles this at build/run time -- see below).
+Requires `expressvpnctl` (ExpressVPN's Linux CLI control tool) to be installed, activated, and on `PATH` (the Docker image handles this at build/run time -- see below).
 
 ## Docker
 

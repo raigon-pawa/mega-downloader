@@ -19,7 +19,7 @@ import java.util.logging.Logger;
 
 /**
  * Replaces {@code SmartMegaProxyManager}'s open-proxy pool with ExpressVPN
- * server-location rotation, wrapping the {@code expressvpn} Linux CLI via
+ * server-location rotation, wrapping the {@code expressvpnctl} Linux CLI via
  * {@link ProcessBuilder}. Mirrors the old manager's two-mode behaviour
  * (PASSIVE: only engage after a 509, staying "armed" for a recheck window;
  * FORCE: always engaged) and its reactive-rotation-on-failure pattern, but
@@ -156,7 +156,7 @@ public final class VpnRotationManager {
 
     /**
      * Ensures ExpressVPN is connected. Cheap/non-blocking if already
-     * connected; otherwise spawns {@code expressvpn connect} and waits up
+     * connected; otherwise spawns {@code expressvpnctl connect} and waits up
      * to {@link #getConnectTimeoutMs()}. Safe to call concurrently from
      * many worker threads -- only the first one to arrive actually
      * connects, via {@code _connect_lock}; the rest observe the result.
@@ -225,7 +225,7 @@ public final class VpnRotationManager {
                 return;
             }
             try {
-                Process p = new ProcessBuilder("expressvpn", "disconnect").redirectErrorStream(true).start();
+                Process p = new ProcessBuilder("expressvpnctl", "disconnect").redirectErrorStream(true).start();
                 p.waitFor(_connect_timeout_ms, TimeUnit.MILLISECONDS);
             } catch (Exception ex) {
                 LOG.log(Level.WARNING, "[VPN] disconnect failed: {0}", ex.getMessage());
@@ -245,7 +245,7 @@ public final class VpnRotationManager {
      */
     private String pickLocation(String exclude) {
         if (_locations.isEmpty()) {
-            return null; // null location arg -> `expressvpn connect` with no location -> ExpressVPN's own "smart location"
+            return null; // null location arg -> `expressvpnctl connect` with no location -> ExpressVPN's own "smart location"
         }
         List<String> candidates = new ArrayList<>(_locations);
         Collections.shuffle(candidates);
@@ -266,7 +266,7 @@ public final class VpnRotationManager {
      * Must be called with {@code _connect_lock} held.
      */
     private boolean doConnect(String location) {
-        List<String> cmd = new ArrayList<>(Arrays.asList("expressvpn", "connect"));
+        List<String> cmd = new ArrayList<>(Arrays.asList("expressvpnctl", "connect"));
         if (location != null) {
             cmd.add(location);
         }
@@ -304,10 +304,10 @@ public final class VpnRotationManager {
             return true;
 
         } catch (Exception ex) {
-            // Covers "expressvpn" not on PATH (IOException) as well as
+            // Covers "expressvpnctl" not on PATH (IOException) as well as
             // InterruptedException from waitFor -- either way, fall back to
             // direct connections exactly like the old getProxy()==null path.
-            LOG.log(Level.WARNING, "[VPN] expressvpn CLI unavailable or failed: {0}", ex.getMessage());
+            LOG.log(Level.WARNING, "[VPN] expressvpnctl unavailable or failed: {0}", ex.getMessage());
             return false;
         }
     }
