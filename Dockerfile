@@ -78,28 +78,29 @@ COPY ${EXPRESSVPN_RUN} /tmp/expressvpn.run
 #
 # The installer also tries to register/enable a systemd service
 # (expressvpn-service) via systemctl/D-Bus, which fails outright in a
-# plain container -- confirmed on a real build attempt ("System has not
-# been booted with systemd as init system... Failed to connect to bus").
-# Every other install step (copying files, adding groups, setting
-# permissions) succeeds; only that last systemd-registration step doesn't,
-# and it aborts the whole script when it fails. Two combined workarounds,
-# both scoped to just this RUN layer (a background dbus-daemon started
-# here does NOT survive into later layers, so it must run in the same
-# instruction that needs it):
-#   1. /run/systemd/system is systemd's own on-disk signal that "systemd
-#      is the running init" (sd_booted()) -- satisfies tools that only
-#      check for this before deciding whether to attempt anything further.
-#   2. A real (temporary, build-time-only) system D-Bus daemon, in case the
-#      installer needs an actual bus connection, not just the marker.
-# Neither makes systemd actually manage the expressvpn-service unit --
-# docker-entrypoint.sh starts the expressvpnd daemon directly instead,
-# which is what actually matters at runtime. This is a best-effort fix
-# based on the exact error text the installer produced, not a confirmed
-# working combination -- if the build still fails here, the next error
-# will narrow it down further.
+# plain container. Confirmed across two real build attempts, in stages:
+#   1st attempt: "System has not been booted with systemd as init
+#      system... Failed to connect to bus" -- fixed below with the
+#      /run/systemd/system marker (satisfies sd_booted()) plus a real
+#      build-time-only dbus-daemon (satisfies the bus-connect itself).
+#   2nd attempt (with #1 fixed): every actual install step then succeeded
+#      (files copied, groups added, permissions set, service file
+#      written) -- the ONLY remaining failure was `systemctl daemon-reload`
+#      itself: "Failed to reload daemon: Launch helper exited with unknown
+#      return code 1". Root cause: our dbus-daemon is a bare message-bus
+#      router, not an actual systemd manager process -- there's nothing
+#      registered on the bus to answer systemctl's method call, and no
+#      way to make one exist inside a `docker build` RUN layer (systemd as
+#      PID 1 isn't achievable there). So instead of trying to satisfy
+#      systemctl, shadow it with a no-op: docker-entrypoint.sh already
+#      starts the expressvpnd daemon directly rather than relying on
+#      systemd to have registered/started anything, so the install only
+#      needs systemctl to not fail, not to actually do anything.
 RUN mkdir -p /run/dbus /run/systemd/system \
     && dbus-daemon --system --fork \
     && sleep 1 \
+    && printf '#!/bin/sh\nexit 0\n' > /usr/bin/systemctl \
+    && chmod +x /usr/bin/systemctl \
     && chmod +x /tmp/expressvpn.run \
     && (yes | /tmp/expressvpn.run) \
     && rm -f /tmp/expressvpn.run \
