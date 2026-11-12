@@ -23,7 +23,6 @@ import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.crypto.Cipher;
-import javax.swing.JOptionPane;
 
 /**
  *
@@ -150,7 +149,7 @@ public class MegaCrypterAPI {
         return dl_url;
     }
 
-    public static String[] getMegaFileMetadata(String link, MainPanelView panel, String reverse) throws MegaCrypterAPIException, MalformedURLException, IOException {
+    public static String[] getMegaFileMetadata(String link, String reverse) throws MegaCrypterAPIException, MalformedURLException, IOException {
         String request = "{\"m\":\"info\", \"link\": \"" + link + "\"" + (reverse != null ? ", \"reverse\": \"" + reverse + "\"" : "") + "}";
 
         URL url_api = new URL(findFirstRegex("https?://[^/]+", link, 0) + "/api");
@@ -253,26 +252,11 @@ public class MegaCrypterAPI {
 
                     if ((password = pass_list.poll()) == null) {
 
-                        if (MainPanel.isCliMode()) {
-                            password = panel != null
-                                    ? panel.getMain_panel().getUserPrompter().promptText(I18n.tr("ui.input.megacrypter_password"))
-                                    : null;
-                        } else {
-                            // Show the modal password prompt OUTSIDE this lock would be
-                            // preferable, but we need the user's input before continuing
-                            // to validate. Run on EDT via invokeAndWait so that the modal
-                            // dialog's event loop is on the right thread; PASS_LOCK
-                            // remains held briefly.
-                            final String[] entered = {null};
-                            try {
-                                MiscTools.GUIRunAndWait(() -> {
-                                    entered[0] = JOptionPane.showInputDialog(panel, I18n.tr("ui.input.megacrypter_password"));
-                                });
-                            } catch (Exception ex) {
-                                // ignore
-                            }
-                            password = entered[0];
-                        }
+                        // Prompted while holding PASS_LOCK: the answer is needed to validate before continuing.
+                        MainPanel main_panel = MainPanel.getInstance();
+                        password = main_panel != null
+                                ? main_panel.getUserPrompter().promptText(I18n.tr("ui.input.megacrypter_password"))
+                                : null;
                     }
 
                     if (password != null) {

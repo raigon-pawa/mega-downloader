@@ -38,7 +38,6 @@ import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
-import javax.swing.JOptionPane;
 
 /**
  *
@@ -410,8 +409,6 @@ public class CryptTools {
 
                 String user, api_key;
 
-                boolean remember_master_pass;
-
                 if (main_panel.getElc_accounts().get(url.getHost()) != null) {
 
                     elc_account_data = (HashMap) main_panel.getElc_accounts().get(url.getHost());
@@ -420,56 +417,19 @@ public class CryptTools {
 
                         if (main_panel.getMaster_pass() == null) {
 
-                            if (MainPanel.isCliMode()) {
+                            byte[] entered_pass = MiscTools.promptMasterPasswordHeadless(main_panel);
 
-                                byte[] entered_pass = MiscTools.promptMasterPasswordHeadless(main_panel);
+                            if (entered_pass != null) {
 
-                                if (entered_pass != null) {
+                                main_panel.setMaster_pass(entered_pass);
 
-                                    main_panel.setMaster_pass(entered_pass);
+                                user = new String(CryptTools.aes_cbc_decrypt_at_rest(BASE642Bin(elc_account_data.get("user")), main_panel.getMaster_pass()), "UTF-8");
 
-                                    user = new String(CryptTools.aes_cbc_decrypt_at_rest(BASE642Bin(elc_account_data.get("user")), main_panel.getMaster_pass()), "UTF-8");
-
-                                    api_key = new String(CryptTools.aes_cbc_decrypt_at_rest(BASE642Bin(elc_account_data.get("apikey")), main_panel.getMaster_pass()), "UTF-8");
-
-                                } else {
-
-                                    throw new Exception("NO valid ELC account available!");
-                                }
+                                api_key = new String(CryptTools.aes_cbc_decrypt_at_rest(BASE642Bin(elc_account_data.get("apikey")), main_panel.getMaster_pass()), "UTF-8");
 
                             } else {
 
-                                GetMasterPasswordDialog dialog = new GetMasterPasswordDialog(main_panel.getView(), true, main_panel.getMaster_pass_hash(), main_panel.getMaster_pass_salt(), main_panel);
-
-                                dialog.setLocationRelativeTo(main_panel.getView());
-
-                                dialog.setVisible(true);
-
-                                if (dialog.isPass_ok()) {
-
-                                    main_panel.setMaster_pass(dialog.getPass());
-
-                                    dialog.deletePass();
-
-                                    remember_master_pass = dialog.getRemember_checkbox().isSelected();
-
-                                    dialog.dispose();
-
-                                    user = new String(CryptTools.aes_cbc_decrypt_at_rest(BASE642Bin(elc_account_data.get("user")), main_panel.getMaster_pass()), "UTF-8");
-
-                                    api_key = new String(CryptTools.aes_cbc_decrypt_at_rest(BASE642Bin(elc_account_data.get("apikey")), main_panel.getMaster_pass()), "UTF-8");
-
-                                    if (!remember_master_pass) {
-
-                                        main_panel.setMaster_pass(null);
-                                    }
-
-                                } else {
-
-                                    dialog.dispose();
-
-                                    throw new Exception("NO valid ELC account available!");
-                                }
+                                throw new Exception("NO valid ELC account available!");
                             }
 
                         } else {
@@ -546,11 +506,7 @@ public class CryptTools {
 
             } catch (Exception ex) {
                 Logger.getLogger(CryptTools.class.getName()).log(Level.SEVERE, ex.getMessage());
-                if (MainPanel.isCliMode()) {
-                    main_panel.getUserPrompter().showError(I18n.tr("ui.elc_error_title"), ex.getMessage());
-                } else {
-                    JOptionPane.showMessageDialog(main_panel.getView(), ex.getMessage(), I18n.tr("ui.elc_error_title"), JOptionPane.ERROR_MESSAGE);
-                }
+                main_panel.getUserPrompter().showError(I18n.tr("ui.elc_error_title"), ex.getMessage());
             } finally {
                 if (con != null) {
                     con.disconnect();
@@ -653,11 +609,7 @@ public class CryptTools {
 
             Logger.getLogger(CryptTools.class.getName()).log(Level.SEVERE, ex.getMessage());
 
-            if (MainPanel.isCliMode()) {
-                main_panel.getUserPrompter().showError(I18n.tr("ui.dlc_error_title"), ex.getMessage());
-            } else {
-                JOptionPane.showMessageDialog(main_panel.getView(), ex.getMessage(), I18n.tr("ui.dlc_error_title"), JOptionPane.ERROR_MESSAGE);
-            }
+            main_panel.getUserPrompter().showError(I18n.tr("ui.dlc_error_title"), ex.getMessage());
         } finally {
             if (con != null) {
                 con.disconnect();

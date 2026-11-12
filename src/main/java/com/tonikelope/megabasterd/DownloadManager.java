@@ -12,7 +12,6 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.logging.Level;
 import static java.util.logging.Level.SEVERE;
 import java.util.logging.Logger;
-import javax.swing.JOptionPane;
 
 /**
  *
@@ -24,7 +23,7 @@ public class DownloadManager extends TransferenceManager {
 
     public DownloadManager(MainPanel main_panel) {
 
-        super(main_panel, main_panel.getMax_dl(), main_panel.getView().getStatus_down_label(), main_panel.getView().getjPanel_scroll_down(), main_panel.getView().getClose_all_finished_down_button(), main_panel.getView().getPause_all_down_button(), main_panel.getView().getClean_all_down_menu());
+        super(main_panel, main_panel.getMax_dl());
     }
 
     /**
@@ -60,10 +59,6 @@ public class DownloadManager extends TransferenceManager {
 
                 });
 
-                MiscTools.GUIRun(() -> {
-                    getMain_panel().getView().getForce_chunk_reset_button().setEnabled(true);
-                    JOptionPane.showMessageDialog(getMain_panel().getView(), LabelTranslatorSingleton.getInstance().translate("CURRENT DOWNLOAD CHUNKS RESET!"));
-                });
             }
 
         });
@@ -82,9 +77,8 @@ public class DownloadManager extends TransferenceManager {
         secureNotify();
     }
 
-    public int copyAllLinksToClipboard() {
-
-        int total = 0;
+    /** Every queued/running/finished download link, grouped by state. */
+    public String getAllLinksText() {
 
         ArrayList<String> links = new ArrayList<>();
 
@@ -96,8 +90,6 @@ public class DownloadManager extends TransferenceManager {
         }
 
         out += String.join("\r\n", links);
-
-        total += links.size();
 
         links.clear();
 
@@ -115,8 +107,6 @@ public class DownloadManager extends TransferenceManager {
 
         out += String.join("\r\n", links);
 
-        total += links.size();
-
         links.clear();
 
         out += "\r\n\r\n***RUNNING DOWNLOADS***\r\n\r\n";
@@ -127,8 +117,6 @@ public class DownloadManager extends TransferenceManager {
         }
 
         out += String.join("\r\n", links);
-
-        total += links.size();
 
         links.clear();
 
@@ -141,11 +129,7 @@ public class DownloadManager extends TransferenceManager {
 
         out += String.join("\r\n", links);
 
-        total += links.size();
-
-        MiscTools.copyTextToClipboard(out);
-
-        return total;
+        return out;
 
     }
 
@@ -153,11 +137,8 @@ public class DownloadManager extends TransferenceManager {
     public void remove(Transference[] downloads) {
 
         ArrayList<String> delete_down = new ArrayList<>();
-        final java.util.ArrayList<DownloadView> views_to_remove = new java.util.ArrayList<>();
 
         for (final Transference d : downloads) {
-
-            views_to_remove.add(((Download) d).getView());
 
             getTransference_waitstart_queue().remove(d);
 
@@ -179,14 +160,6 @@ public class DownloadManager extends TransferenceManager {
             delete_down.add(((Download) d).getUrl());
         }
 
-        MiscTools.GUIRun(() -> {
-            for (DownloadView v : views_to_remove) {
-                getScroll_panel().remove(v);
-            }
-            getScroll_panel().revalidate();
-            getScroll_panel().repaint();
-        });
-
         try {
             deleteDownloads(delete_down.toArray(new String[delete_down.size()]));
         } catch (SQLException ex) {
@@ -198,9 +171,6 @@ public class DownloadManager extends TransferenceManager {
 
     @Override
     public void provision(final Transference download) {
-        MiscTools.GUIRun(() -> {
-            getScroll_panel().add(((Download) download).getView());
-        });
 
         try {
 

@@ -54,6 +54,11 @@
             <artifactId>picocli</artifactId>
             <version>4.7.6</version>
         </dependency>
+        <dependency>
+            <groupId>com.formdev</groupId>
+            <artifactId>flatlaf</artifactId>
+            <version>3.5.4</version>
+        </dependency>
     </dependencies>
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -88,5 +93,5 @@
         </plugins>
     </build>
     <name>mega-downloader</name>
-    <description>CLI MEGA downloader/uploader/streaming suite with ExpressVPN-based quota bypass, for headless/cloud use. Fork of tonikelope/megabasterd.</description>
+    <description>MEGA downloader/uploader/streaming suite with ExpressVPN-based quota bypass: CLI for headless/cloud use plus a desktop window. Fork of tonikelope/megabasterd.</description>
 </project>

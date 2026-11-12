@@ -33,8 +33,6 @@ import java.util.logging.Logger;
 import java.util.zip.GZIPInputStream;
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLException;
-import javax.swing.JOptionPane;
-import javax.swing.JProgressBar;
 
 /**
  *
@@ -1604,7 +1602,7 @@ public class MegaAPI implements Serializable {
         }
     }
 
-    public HashMap<String, Object> getFolderNodes(String folder_id, String folder_key, JProgressBar bar, boolean cache) throws Exception {
+    public HashMap<String, Object> getFolderNodes(String folder_id, String folder_key, boolean cache) throws Exception {
 
         HashMap<String, Object> folder_nodes = null;
         String res = null;
@@ -1635,26 +1633,9 @@ public class MegaAPI implements Serializable {
 
         List folder_entries = (List) res_map[0].get("f");
 
-        if (bar != null) {
-            int s = folder_entries.size();
-            MiscTools.GUIRun(() -> {
-                bar.setIndeterminate(false);
-                bar.setMaximum(s);
-                bar.setValue(0);
-            });
-        }
-
-        int conta_nodo = 0;
         byte[] decodedFolderKey = _urlBase64KeyDecode(folder_key);
 
         for (Object o : (Iterable<? extends Object>) folder_entries) {
-            conta_nodo++;
-            final int c = conta_nodo;
-
-            if (bar != null) {
-                MiscTools.GUIRun(() -> bar.setValue(c));
-            }
-
             HashMap<String, Object> node = (HashMap<String, Object>) o;
             String full_k = (String) node.get("k");
             if (full_k == null || full_k.isEmpty()) {
@@ -1696,7 +1677,7 @@ public class MegaAPI implements Serializable {
                 the_node.put("key", valid_dec_node_k);
                 the_node.put("name", valid_at.get("n"));
 
-                // FIX: Prevenir NullPointerException en JTree para carpetas
+                // Folders carry no size: default to 0 so consumers never see null
                 if (node.get("s") != null) {
                     the_node.put("size", ((Number) node.get("s")).longValue());
                 } else {
@@ -1716,7 +1697,7 @@ public class MegaAPI implements Serializable {
         return folder_nodes;
     }
 
-    public HashMap<String, Object> getFolderNodes4(String folder_id, String folder_key, JProgressBar bar, boolean cache) throws Exception {
+    public HashMap<String, Object> getFolderNodes4(String folder_id, String folder_key, boolean cache) throws Exception {
 
         HashMap<String, Object> folder_nodes = null;
         String res = null;
@@ -1749,28 +1730,7 @@ public class MegaAPI implements Serializable {
             root_handle = (String) ((HashMap<String, Object>) folder_entries.get(0)).get("h");
         }
 
-        int s = folder_entries.size();
-
-        if (bar != null) {
-            MiscTools.GUIRun(() -> {
-                bar.setIndeterminate(false);
-                bar.setMaximum(s);
-                bar.setValue(0);
-            });
-        }
-
-        int conta_nodo = 0;
-
         for (Object o : (Iterable<? extends Object>) res_map[0].get("f")) {
-            conta_nodo++;
-            int c = conta_nodo;
-
-            if (bar != null) {
-                MiscTools.GUIRun(() -> {
-                    bar.setValue(c);
-                });
-            }
-
             HashMap<String, Object> node = (HashMap<String, Object>) o;
 
             // --- YELLOWSTONE FIX START ---
@@ -1878,11 +1838,6 @@ public class MegaAPI implements Serializable {
         // loop entirely -- the surviving #F* originals are preserved via
         // malformed_originals + the caller's preprocess_global_queue, so
         // they'll be picked up on the next launch.
-        //
-        // Goes through MainPanel.getInstance() rather than
-        // MainPanelView.getINSTANCE().getMain_panel() so this works whether
-        // or not a GUI is running -- there is no MainPanelView in headless
-        // (CLI/Docker) mode.
         MainPanel main_panel = MainPanel.getInstance();
         boolean exiting = main_panel != null && main_panel.isExit();
 
@@ -1894,24 +1849,11 @@ public class MegaAPI implements Serializable {
 
             String[] folder_parts = entry.getKey().split(":");
 
-            int r = -1;
-
-            if (existsCachedFolderNodes(folder_parts[0])) {
-                final int[] rr = {-1};
-                final String fid = folder_parts[0];
-                if (MainPanel.isCliMode()) {
-                    boolean use_cache = main_panel != null && main_panel.getUserPrompter().confirmYesNo(I18n.tr("ui.confirm.folder_cache.message_with_id", fid));
-                    rr[0] = use_cache ? JOptionPane.YES_OPTION : JOptionPane.NO_OPTION;
-                } else {
-                    MiscTools.GUIRunAndWait(() -> {
-                        rr[0] = JOptionPane.showConfirmDialog(MainPanelView.getINSTANCE(), I18n.tr("ui.confirm.folder_cache.message_with_id", fid), I18n.tr("ui.confirm.folder_cache.title"), JOptionPane.YES_NO_OPTION);
-                    });
-                }
-                r = rr[0];
-            }
+            boolean use_cache = existsCachedFolderNodes(folder_parts[0]) && main_panel != null
+                    && main_panel.getUserPrompter().confirmYesNo(I18n.tr("ui.confirm.folder_cache.message_with_id", folder_parts[0]));
 
             try {
-                nlinks.addAll(getNLinksFromFolder(folder_parts[0], folder_parts[1], entry.getValue(), (r == 0)));
+                nlinks.addAll(getNLinksFromFolder(folder_parts[0], folder_parts[1], entry.getValue(), use_cache));
             } catch (Exception ex) {
                 LOG.log(Level.SEVERE, _ctx(), ex);
             }
@@ -1931,7 +1873,7 @@ public class MegaAPI implements Serializable {
 
         ArrayList<String> nlinks = new ArrayList<>();
 
-        HashMap<String, Object> folder_nodes = getFolderNodes(folder_id, folder_key, null, cache);
+        HashMap<String, Object> folder_nodes = getFolderNodes(folder_id, folder_key, cache);
 
         if (folder_nodes != null) {
 

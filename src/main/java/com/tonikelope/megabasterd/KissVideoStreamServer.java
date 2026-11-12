@@ -42,6 +42,7 @@ public class KissVideoStreamServer implements HttpHandler, SecureSingleThreadNot
     private static final Logger LOG = Logger.getLogger(KissVideoStreamServer.class.getName());
 
     private final MainPanel _main_panel;
+    private volatile String _status = "";
     private final ConcurrentHashMap<String, HashMap<String, Object>> _link_cache;
     private final ConcurrentLinkedQueue<Thread> _working_threads;
     private final ContentType _ctype;
@@ -56,6 +57,33 @@ public class KissVideoStreamServer implements HttpHandler, SecureSingleThreadNot
         _notified = false;
         _secure_notify_lock = new Object();
 
+    }
+
+    /** Human-readable server state for a front-end status bar. */
+    /**
+     * URL at which this server streams the given MEGA video link (open it in
+     * a media player or browser). Folder-file links are resolved first.
+     *
+     * @param account email of a stored MEGA account to use, or null
+     * @return the URL, or null when a folder-file link cannot be resolved
+     */
+    public static String streamUrl(String account, String link) {
+
+        if (link.contains("#F*")) {
+            java.util.Set<String> links = new java.util.HashSet<>();
+            links.add(link);
+            java.util.List<String> nlinks = new MegaAPI().GENERATE_N_LINKS(links);
+            if (nlinks.isEmpty()) {
+                return null;
+            }
+            link = nlinks.get(0);
+        }
+
+        return "http://localhost:" + MainPanel.STREAMER_PORT + "/video/" + MiscTools.Bin2UrlBASE64(((account != null ? account : "") + "|" + link).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    public String getStatus() {
+        return _status;
     }
 
     public MainPanel getMain_panel() {
@@ -105,7 +133,7 @@ public class KissVideoStreamServer implements HttpHandler, SecureSingleThreadNot
 
     public void start(int port, String context) throws IOException {
 
-        _main_panel.getView().updateKissStreamServerStatus(LabelTranslatorSingleton.getInstance().translate("Streaming server: ON (port ") + STREAMER_PORT + ")");
+        _status = LabelTranslatorSingleton.getInstance().translate("Streaming server: ON (port ") + STREAMER_PORT + ")";
 
         HttpServer httpserver = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), port), 0);
 
@@ -140,11 +168,11 @@ public class KissVideoStreamServer implements HttpHandler, SecureSingleThreadNot
             status = LabelTranslatorSingleton.getInstance().translate("Streaming server: ON (port ") + STREAMER_PORT + ")";
         }
 
-        _main_panel.getView().updateKissStreamServerStatus(status);
+        _status = status;
 
     }
 
-    private String[] _getMegaFileMetadata(String link, MainPanelView panel) throws IOException, APIException {
+    private String[] _getMegaFileMetadata(String link) throws IOException, APIException {
 
         String[] file_info = null;
         int conta_error = 0;
@@ -164,7 +192,7 @@ public class KissVideoStreamServer implements HttpHandler, SecureSingleThreadNot
 
                 } else {
 
-                    file_info = MegaCrypterAPI.getMegaFileMetadata(link, panel, getMain_panel().getMega_proxy_server() != null ? (getMain_panel().getMega_proxy_server().getPort() + ":" + Bin2BASE64(("megacrypter:" + getMain_panel().getMega_proxy_server().getPassword()).getBytes("UTF-8"))) : null);
+                    file_info = MegaCrypterAPI.getMegaFileMetadata(link, getMain_panel().getMega_proxy_server() != null ? (getMain_panel().getMega_proxy_server().getPort() + ":" + Bin2BASE64(("megacrypter:" + getMain_panel().getMega_proxy_server().getPassword()).getBytes("UTF-8"))) : null);
 
                 }
 
@@ -217,7 +245,7 @@ public class KissVideoStreamServer implements HttpHandler, SecureSingleThreadNot
 
                 if (mega_account != null) {
 
-                    ma = checkMegaAccountLoginAndShowMasterPassDialog(_main_panel, _main_panel.getView(), mega_account);
+                    ma = checkMegaAccountLoginAndShowMasterPassDialog(_main_panel, mega_account);
                 }
 
                 if (findFirstRegex("://mega(\\.co)?\\.nz/", link, 0) != null) {
@@ -355,7 +383,7 @@ public class KissVideoStreamServer implements HttpHandler, SecureSingleThreadNot
 
             } else {
 
-                String[] finfo = _getMegaFileMetadata(link, _main_panel.getView());
+                String[] finfo = _getMegaFileMetadata(link);
 
                 file_info = new HashMap<>();
 

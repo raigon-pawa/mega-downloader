@@ -37,9 +37,8 @@ import java.util.ResourceBundle;
  * {@code src/main/resources/i18n/messages*.properties} (see
  * {@link I18n#BUNDLE_BASENAME}). This class now exists only so that existing
  * call sites such as
- * {@code LabelTranslatorSingleton.getInstance().translate("Cancel")} and
- * NetBeans {@code .form} files (translated by walking the component tree and
- * calling {@code translate(label.getText())}) keep working without code edits.
+ * {@code LabelTranslatorSingleton.getInstance().translate("Cancel")} keep
+ * working without code edits.
  *
  * <p>The shim works by inverting the English bundle at construction time
  * (English literal -&gt; key), then delegating {@link #translate(String)} to

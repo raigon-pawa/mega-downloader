@@ -4,9 +4,9 @@
 
 <p align="center"><b>IMPORTANT:</b> You are not authorized to use this tool in any way that violates <a href="https://mega.io/es/terms"><b>MEGA's terms of use</b></a>.</p>
 
-A command-line MEGA downloader/uploader/streaming tool for headless/cloud use, with ExpressVPN-based bandwidth-quota bypass. This is a fork of <a href="https://github.com/tonikelope/megabasterd">tonikelope/megabasterd</a> (GPLv3), a Swing desktop app that used an open-proxy pool to dodge MEGA's daily bandwidth quota. This fork:
+A MEGA downloader/uploader/streaming tool with a command-line interface for headless/cloud use and a desktop window for everyday use, with ExpressVPN-based bandwidth-quota bypass. This is a fork of <a href="https://github.com/tonikelope/megabasterd">tonikelope/megabasterd</a> (GPLv3), a Swing desktop app that used an open-proxy pool to dodge MEGA's daily bandwidth quota. This fork:
 
-- Removes the Swing GUI from the runtime path -- everything is driven from a command-line interface, intended for running unattended on a cloud VM or in Docker. (The Swing classes are still in the source tree, kept as inert never-shown plumbing rather than deleted, to avoid destabilizing the underlying download/upload engine -- see "Internals" below.)
+- Replaces the original Swing GUI with a toolkit-free engine driven from a command-line interface (for running unattended on a cloud VM or in Docker) plus a new, optional desktop window built on the same engine (see "Desktop window" below).
 - Replaces the open-proxy pool with ExpressVPN-based IP rotation -- open proxies are unreliable and risky for an unattended server process; a real VPN subscription is not.
 
 ## Running the CLI directly
@@ -19,9 +19,17 @@ java -jar mega-downloader-8.58-jar-with-dependencies.jar settings set vpn_enable
 java -jar mega-downloader-8.58-jar-with-dependencies.jar vpn status
 ```
 
-Run `<subcommand> --help` for each subcommand's options (`download`, `upload`, `stream`, `folder-list`, `accounts`, `settings`, `vpn`). Requires Java 17+ to run the prebuilt jar (built targeting bytecode 1.8, so it should also run under Java 8-16, but that's untested).
+Run `<subcommand> --help` for each subcommand's options (`download`, `upload`, `stream`, `folder-list`, `accounts`, `settings`, `vpn`, `gui`). Requires Java 17+ to run the prebuilt jar (built targeting bytecode 1.8, so it should also run under Java 8-16, but that's untested).
 
-**Note:** even though this is a CLI, the JVM does not run with `-Djava.awt.headless=true` -- the kept-but-unused Swing classes need AWT to see a real (or virtual) display to even construct, not just to be shown. On a normal desktop this is a non-issue; in Docker/on a display-less server you need a virtual framebuffer (Xvfb), which the provided Docker image sets up for you automatically.
+The CLI subcommands need no display: the engine creates no windows, so they also run with `-Djava.awt.headless=true`. (The provided Docker image still starts a virtual framebuffer from when that was required; it is harmless and can be removed.)
+
+## Desktop window
+
+```
+java -jar mega-downloader-8.58-jar-with-dependencies.jar gui
+```
+
+Opens a window with Downloads, Uploads and Log tabs: paste file or folder links (Ctrl+N), pick which files of a folder link to fetch, upload files (Ctrl+U), get a streaming URL, manage MEGA accounts, and change the common settings (Ctrl+,). Select rows to pause, cancel, retry, remove or reorder them; right-click for the rest (connections per transfer, copy link, open folder). It uses the same settings and transfer database as the CLI, so only one of them can run at a time. The less common settings are still set with `settings set <key> <value>`.
 
 ## VPN settings
 
@@ -69,7 +77,7 @@ The ExpressVPN installer's exact invocation, dependencies, and daemon-start comm
 
 ## Internals
 
-For anyone digging into the source: the Swing GUI classes (`MainPanelView`, the `*Dialog` classes) are intentionally still present and still compile, but are never constructed as visible windows in the CLI path -- deleting them turned out to cascade into signature changes across core, non-GUI classes (`MegaCrypterAPI`, etc.), so they were left in place as inert plumbing instead. `MainPanel.isCliMode()` (not AWT's own headless flag) is what actually routes the handful of blocking-dialog call sites (login/master-password/2FA prompts) to the console instead. See the CLI entry point at `src/main/java/com/tonikelope/megabasterd/cli/CliMain.java` and the VPN manager at `src/main/java/com/tonikelope/megabasterd/VpnRotationManager.java`.
+For anyone digging into the source: the engine (`MainPanel`, `Download`, `Upload`, the transfer managers) is toolkit-free. Each transfer publishes its state through a plain `TransferState` object, and anything the engine needs to ask a person (login, master password, 2FA code, confirmations) goes through the `UserPrompter` interface: `ConsoleUserPrompter` for the CLI, a dialog-based one for the window. The window (`src/main/java/com/tonikelope/megabasterd/gui/`, Swing with the FlatLaf look and feel) only polls engine state and calls the engine's public methods. See the CLI entry point at `src/main/java/com/tonikelope/megabasterd/cli/CliMain.java` and the VPN manager at `src/main/java/com/tonikelope/megabasterd/VpnRotationManager.java`.
 
 ## License
 

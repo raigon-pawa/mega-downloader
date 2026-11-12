@@ -11,7 +11,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import javax.swing.JLabel;
 
 /**
  *
@@ -22,17 +21,15 @@ public class SpeedMeter implements Runnable {
     public static final int SLEEP = 3000;
     public static final int CHUNK_SPEED_QUEUE_MAX_SIZE = 20;
     private static final Logger LOG = Logger.getLogger(SpeedMeter.class.getName());
-    private final JLabel _speed_label;
-    private final JLabel _rem_label;
+    private volatile String _speed_text = "";
+    private volatile String _rem_text = "";
     private final TransferenceManager _trans_manager;
     private final ConcurrentHashMap<Transference, HashMap> _transferences;
     private long _speed_counter;
     private long _speed_acumulator;
     private volatile long _max_avg_global_speed;
 
-    SpeedMeter(TransferenceManager trans_manager, JLabel sp_label, JLabel rem_label) {
-        _speed_label = sp_label;
-        _rem_label = rem_label;
+    SpeedMeter(TransferenceManager trans_manager) {
         _trans_manager = trans_manager;
         _transferences = new ConcurrentHashMap<>();
         _speed_counter = 0L;
@@ -61,6 +58,16 @@ public class SpeedMeter implements Runnable {
             _transferences.remove(transference);
         }
 
+    }
+
+    /** Global speed ("1.2 MB/s"), "------" when stalled, "" when idle. */
+    public String getSpeedText() {
+        return _speed_text;
+    }
+
+    /** "progress/size @ avg speed @ remaining time", "" when idle. */
+    public String getRemainingText() {
+        return _rem_text;
     }
 
     public long getMaxAvgGlobalSpeed() {
@@ -134,13 +141,6 @@ public class SpeedMeter implements Runnable {
     public void run() {
         final boolean[] visible_state = {false};
 
-        GUIRun(() -> {
-            _speed_label.setVisible(true);
-            _rem_label.setVisible(true);
-            _speed_label.setText("");
-            _rem_label.setText("");
-        });
-
         do {
 
             try {
@@ -203,22 +203,20 @@ public class SpeedMeter implements Runnable {
                     visible_state[0] = false;
                 }
 
-                GUIRun(() -> {
-                    for (Map.Entry<TransferenceView, String> e : per_row_text.entrySet()) {
-                        e.getKey().updateSpeed(e.getValue(), true);
+                for (Map.Entry<TransferenceView, String> e : per_row_text.entrySet()) {
+                    e.getKey().updateSpeed(e.getValue(), true);
+                }
+                if (clear_both[0]) {
+                    _speed_text = "";
+                    _rem_text = "";
+                } else {
+                    if (new_speed_label[0] != null) {
+                        _speed_text = new_speed_label[0];
                     }
-                    if (clear_both[0]) {
-                        _speed_label.setText("");
-                        _rem_label.setText("");
-                    } else {
-                        if (new_speed_label[0] != null && !new_speed_label[0].equals(_speed_label.getText())) {
-                            _speed_label.setText(new_speed_label[0]);
-                        }
-                        if (new_rem_label[0] != null && !new_rem_label[0].equals(_rem_label.getText())) {
-                            _rem_label.setText(new_rem_label[0]);
-                        }
+                    if (new_rem_label[0] != null) {
+                        _rem_text = new_rem_label[0];
                     }
-                });
+                }
 
                 Thread.sleep(SLEEP);
 

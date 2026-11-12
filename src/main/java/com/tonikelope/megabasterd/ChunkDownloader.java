@@ -98,7 +98,7 @@ public class ChunkDownloader implements Runnable, SecureSingleThreadNotifiable {
 
     /**
      * Last HTTP status code this worker saw on its most recent chunk attempt.
-     * Exposed so Download (watchdog) and DownloadView (status label) can tell
+     * Exposed so Download (watchdog and getSlotsStatus) can tell
      * "stalled because of 509 quota" from "stalled because of network".
      * Protected so the ChunkDownloaderMono subclass can clear it on chunk
      * success. (#751)
@@ -109,7 +109,7 @@ public class ChunkDownloader implements Runnable, SecureSingleThreadNotifiable {
      * True while this worker is in the exp-backoff sleep after a 509 (bandwidth
      * quota) specifically. Used by Download.run()'s watchdog to choose the
      * shorter quota-stall timeout instead of the generic 600 s, and by
-     * DownloadView to show "Quota reached -- retrying in Xs". (#751)
+     * Download.getSlotsStatus() to show "509 Xs". (#751)
      */
     protected volatile boolean _in_509_backoff = false;
 
@@ -125,7 +125,7 @@ public class ChunkDownloader implements Runnable, SecureSingleThreadNotifiable {
 
     /**
      * Seconds remaining in the current 509 backoff (decreases from wait_secs to
-     * 0 inside the sleep loop). Used by DownloadView to render "retrying in Xs"
+     * 0 inside the sleep loop). Used by Download.getSlotsStatus() to render "509 Xs"
      * without having to peek into the loop. (#751)
      */
     protected volatile int _backoff_seconds_remaining = 0;
@@ -153,8 +153,8 @@ public class ChunkDownloader implements Runnable, SecureSingleThreadNotifiable {
 
     /**
      * Break this worker out of its current 509 / network exp-backoff sleep on
-     * the next 1 s tick so it can re-evaluate routing. Called from
-     * MainPanelView after the user enables VPN routing at runtime -- otherwise
+     * the next 1 s tick so it can re-evaluate routing. Meant to be called
+     * after the user enables VPN routing at runtime -- otherwise
      * the worker would sleep for the full exp-backoff (which on retry 5+ runs
      * into minutes) before noticing VPN is now available. (#758)
      */

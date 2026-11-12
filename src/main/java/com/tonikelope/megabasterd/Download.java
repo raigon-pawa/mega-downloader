@@ -8,7 +8,6 @@ import static com.tonikelope.megabasterd.CryptTools.*;
 import static com.tonikelope.megabasterd.DBTools.*;
 import static com.tonikelope.megabasterd.MainPanel.*;
 import static com.tonikelope.megabasterd.MiscTools.*;
-import java.awt.Color;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.File;
@@ -42,7 +41,6 @@ import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
 import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.NoSuchPaddingException;
-import javax.swing.JComponent;
 
 /**
  *
@@ -59,7 +57,7 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
     private static final Logger LOG = Logger.getLogger(Download.class.getName());
 
     private final MainPanel _main_panel;
-    private volatile DownloadView _view;
+    private volatile TransferState _view;
     private volatile ProgressMeter _progress_meter;
     private final Object _secure_notify_lock;
     private final Object _progress_lock;
@@ -212,7 +210,7 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
         _partialProgressQueue = new ConcurrentLinkedQueue<>();
         _rejectedChunkIds = new ConcurrentLinkedQueue<>();
         _thread_pool = newCachedThreadPool();
-        _view = new DownloadView(this);
+        _view = new TransferState(true, _main_panel.getDefault_slots_down());
         _progress_meter = new ProgressMeter(this);
         _custom_chunks_dir = custom_chunks_dir;
         _turbo = false;
@@ -258,7 +256,7 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
         _partialProgressQueue = new ConcurrentLinkedQueue<>();
         _rejectedChunkIds = new ConcurrentLinkedQueue<>();
         _thread_pool = newCachedThreadPool();
-        _view = new DownloadView(this);
+        _view = new TransferState(true, _main_panel.getDefault_slots_down());
         _progress_meter = new ProgressMeter(this);
         _custom_chunks_dir = download.getCustom_chunks_dir();
         _turbo = false;
@@ -304,11 +302,6 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
         synchronized (_turbo_proxy_lock) {
             if (_turbo) {
                 _turbo = false;
-                MiscTools.GUIRun(() -> {
-
-                    getView().getSpeed_label().setForeground(new Color(0, 128, 255));
-
-                });
             }
         }
     }
@@ -324,12 +317,6 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
                 if (!_finalizing) {
                     Download tthis = this;
 
-                    MiscTools.GUIRun(() -> {
-
-                        getView().getSpeed_label().setForeground(new Color(255, 102, 0));
-
-                    });
-
                     synchronized (_workers_lock) {
 
                         for (int t = getChunkworkers().size(); t <= Transference.MAX_WORKERS; t++) {
@@ -343,11 +330,14 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
 
                     }
 
-                    MiscTools.GUIRun(() -> {
-                        getView().getSlots_spinner().setValue(Transference.MAX_WORKERS);
+                    boolean slots_changed = getView().getSlots() != Transference.MAX_WORKERS;
 
-                        getView().getSlots_spinner().setEnabled(true);
-                    });
+                    getView().setSlots(Transference.MAX_WORKERS);
+
+                    if (slots_changed && isUse_slots()) {
+                        // Was the slots spinner's change listener: trims the extra worker the loop above starts.
+                        THREAD_POOL.execute(this::checkSlotsAndWorkers);
+                    }
                 }
             }
 
@@ -467,7 +457,7 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
     }
 
     @Override
-    public DownloadView getView() {
+    public TransferState getView() {
 
         while (_view == null) {
             try {
@@ -549,8 +539,8 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
     /**
      * Break the in-flight auto-retry countdown so {@link #restart()} fires on
      * the next 1 s tick instead of waiting out the full {@link
-     * Transference#RESTART_COUNTDOWN_SECS_OVERQUOTA} window. Called from
-     * MainPanelView right after the user enables SmartProxy at runtime so a
+     * Transference#RESTART_COUNTDOWN_SECS_OVERQUOTA} window. Meant to be
+     * called right after the user enables SmartProxy at runtime so a
      * download that is sitting in the finished_queue with -17 pending a 60 s
      * rearm can immediately reissue /cs through the now-available proxy pool.
      *
@@ -612,6 +602,40 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
         return isExit();
     }
 
+    /**
+     * Worker health for front-ends: "509 12s" / "509 ..." while workers sit in
+     * MEGA quota (HTTP 509) backoff, "(n)" for n workers in error backoff,
+     * else "".
+     */
+    public String getSlotsStatus() {
+
+        synchronized (_workers_lock) {
+
+            int conta_error = 0, in_509 = 0, min_remaining = MAX_VALUE;
+
+            for (ChunkDownloader c : _chunkworkers) {
+
+                if (c.isError_wait()) {
+                    conta_error++;
+                }
+
+                if (c.isIn_509_backoff()) {
+                    in_509++;
+                    int r = c.getBackoff_seconds_remaining();
+                    if (r > 0 && r < min_remaining) {
+                        min_remaining = r;
+                    }
+                }
+            }
+
+            if (in_509 > 0) {
+                return "509 " + (min_remaining != MAX_VALUE ? min_remaining + "s" : "...");
+            }
+
+            return conta_error > 0 ? "(" + conta_error + ")" : "";
+        }
+    }
+
     @Override
     public void checkSlotsAndWorkers() {
 
@@ -667,21 +691,13 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
 
     @Override
     public long getFile_size() {
-        return _file_size;
+        // Unknown until provisioned: 0, not an unboxing NPE in callers that poll.
+        Long size = _file_size;
+        return size != null ? size : 0L;
     }
 
     @Override
     public void run() {
-
-        MiscTools.GUIRun(() -> {
-            getView().getQueue_down_button().setVisible(false);
-            getView().getQueue_up_button().setVisible(false);
-            getView().getQueue_top_button().setVisible(false);
-            getView().getQueue_bottom_button().setVisible(false);
-            getView().getClose_button().setVisible(false);
-            getView().getCopy_link_button().setVisible(true);
-            getView().getOpen_folder_button().setVisible(true);
-        });
 
         getView().printStatusNormal("Starting download, please wait...");
 
@@ -778,8 +794,7 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
 
                                 _slots = getMain_panel().getDefault_slots_down();
 
-                                final int initial_slots = _slots;
-                                MiscTools.GUIRun(() -> _view.getSlots_spinner().setValue(initial_slots));
+                                _view.setSlots(_slots);
 
                                 for (int t = 1; t <= _slots; t++) {
                                     ChunkDownloader c = new ChunkDownloader(t, this);
@@ -788,14 +803,6 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
 
                                     _thread_pool.execute(c);
                                 }
-
-                                MiscTools.GUIRun(() -> {
-                                    for (JComponent c : new JComponent[]{getView().getSlots_label(), getView().getSlots_spinner(), getView().getSlot_status_label()}) {
-
-                                        c.setVisible(true);
-                                    }
-                                });
-
                             } else {
 
                                 ChunkDownloaderMono c = new ChunkDownloaderMono(this);
@@ -803,23 +810,10 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
                                 _chunkworkers.add(c);
 
                                 _thread_pool.execute(c);
-
-                                MiscTools.GUIRun(() -> {
-                                    for (JComponent c1 : new JComponent[]{getView().getSlots_label(), getView().getSlots_spinner(), getView().getSlot_status_label()}) {
-                                        c1.setVisible(false);
-                                    }
-                                });
                             }
                         }
 
                         getView().printStatusNormal(LabelTranslatorSingleton.getInstance().translate("Downloading file from mega ") + (_ma.getFull_email() != null ? "(" + _ma.getFull_email() + ")" : "") + " ...");
-
-                        MiscTools.GUIRun(() -> {
-                            for (JComponent c : new JComponent[]{getView().getPause_button(), getView().getProgress_pbar()}) {
-
-                                c.setVisible(true);
-                            }
-                        });
 
                         THREAD_POOL.execute(() -> {
 
@@ -950,13 +944,6 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
 
                         _output_stream.close();
 
-                        MiscTools.GUIRun(() -> {
-                            for (JComponent c : new JComponent[]{getView().getSpeed_label(), getView().getPause_button(), getView().getStop_button(), getView().getSlots_label(), getView().getSlots_spinner(), getView().getKeep_temp_checkbox()}) {
-
-                                c.setVisible(false);
-                            }
-                        });
-
                         if (_progress == _file_size) {
 
                             if (_file.length() != _file_size) {
@@ -990,12 +977,6 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
 
                                 getView().printStatusNormal("Checking file integrity, please wait...");
 
-                                MiscTools.GUIRun(() -> {
-                                    getView().getStop_button().setVisible(true);
-
-                                    getView().getStop_button().setText(LabelTranslatorSingleton.getInstance().translate("CANCEL CHECK"));
-                                });
-
                                 getMain_panel().getDownload_manager().getTransference_running_list().remove(this);
 
                                 getMain_panel().getDownload_manager().secureNotify();
@@ -1021,10 +1002,6 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
                                     getView().printStatusOK("File successfully downloaded! (but integrity check CANCELED)");
 
                                 }
-
-                                MiscTools.GUIRun(() -> {
-                                    getView().getStop_button().setVisible(false);
-                                });
 
                             } else {
 
@@ -1140,11 +1117,6 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
                     parent_download_dir.delete();
                     parent_download_dir = parent_download_dir.getParentFile();
                 }
-
-                if (!(new File(getDownload_path() + "/" + getFile_name()).getParentFile().exists())) {
-
-                    getView().getOpen_folder_button().setEnabled(false);
-                }
             }
         }
 
@@ -1162,26 +1134,7 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
 
         getMain_panel().getDownload_manager().getTransference_finished_queue().add(this);
 
-        MiscTools.GUIRun(() -> {
-            getMain_panel().getDownload_manager().getScroll_panel().remove(getView());
-
-            getMain_panel().getDownload_manager().getScroll_panel().add(getView());
-        });
-
         getMain_panel().getDownload_manager().secureNotify();
-
-        MiscTools.GUIRun(() -> {
-            getView().getClose_button().setVisible(true);
-
-            if ((_status_error != null || _canceled) && isProvision_ok() && !global_cancel) {
-
-                getView().getRestart_button().setVisible(true);
-
-            } else if (!global_cancel) {
-
-                getView().getClose_button().setIcon(new javax.swing.ImageIcon(getClass().getResource("/images/icons8-ok-30.png")));
-            }
-        });
 
         if (_status_error != null && !_canceled && _auto_retry_on_error) {
             // MEGA's -17 (EOVERQUOTA) quota window is on the order of tens
@@ -1205,10 +1158,6 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
             THREAD_POOL.execute(() -> {
                 try {
                     for (int i = countdown_secs; !_closed && i > 0; i--) {
-                        final int j = i;
-                        MiscTools.GUIRun(() -> {
-                            getView().getRestart_button().setText(I18n.tr("ui.dynamic.restart_countdown", j));
-                        });
                         try {
                             Thread.sleep(1000);
                         } catch (InterruptedException ex) {
@@ -1245,7 +1194,7 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
 
         _exit = true;
 
-        if (_status_error != null && !_canceled && getMain_panel().getDownload_manager().no_transferences() && getMain_panel().getUpload_manager().no_transferences() && (!getMain_panel().getDownload_manager().getTransference_finished_queue().isEmpty() || !getMain_panel().getUpload_manager().getTransference_finished_queue().isEmpty()) && getMain_panel().getView().getAuto_close_menu().isSelected()) {
+        if (_status_error != null && !_canceled && getMain_panel().getDownload_manager().no_transferences() && getMain_panel().getUpload_manager().no_transferences() && (!getMain_panel().getDownload_manager().getTransference_finished_queue().isEmpty() || !getMain_panel().getUpload_manager().getTransference_finished_queue().isEmpty()) && "yes".equals(selectSettingValue("auto_close"))) {
             System.exit(0);
         }
 
@@ -1260,11 +1209,6 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
 
         getView().printStatusNormal("Provisioning download, please wait...");
 
-        MiscTools.GUIRun(() -> {
-            getView().getCopy_link_button().setVisible(true);
-            getView().getOpen_folder_button().setVisible(true);
-        });
-
         String[] file_info;
 
         _provision_ok = false;
@@ -1273,7 +1217,7 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
             if (_file_name == null) {
 
                 //New single file links
-                file_info = getMegaFileMetadata(_url, getMain_panel().getView(), retry);
+                file_info = getMegaFileMetadata(_url, retry);
 
                 if (file_info != null) {
 
@@ -1372,54 +1316,15 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
                 _status_error = "PROVISION FAILED";
             }
 
-            if (_file_name != null) {
-                MiscTools.GUIRun(() -> {
-                    getView().getFile_name_label().setVisible(true);
-
-                    getView().getFile_name_label().setText(truncateText(new File(_download_path + "/" + _file_name).getName(), 150));
-
-                    getView().getFile_name_label().setToolTipText(_download_path + "/" + _file_name);
-
-                    getView().getFile_size_label().setVisible(true);
-
-                    getView().getFile_size_label().setText(formatBytes(_file_size));
-                });
-            }
-
             getView().hideAllExceptStatus();
 
             getView().printStatusError(_status_error);
-
-            MiscTools.GUIRun(() -> {
-                getView().getClose_button().setVisible(true);
-            });
 
         } else {
 
             _progress_bar_rate = MAX_VALUE / (double) _file_size;
 
             getView().printStatusNormal(_frozen ? "(FROZEN) Waiting to start..." : "Waiting to start...");
-
-            MiscTools.GUIRun(() -> {
-                getView().getFile_name_label().setVisible(true);
-
-                getView().getFile_name_label().setText(truncateText(new File(_download_path + "/" + _file_name).getName(), 150));
-
-                getView().getFile_name_label().setToolTipText(_download_path + "/" + _file_name);
-
-                getView().getFile_size_label().setVisible(true);
-
-                getView().getFile_size_label().setText(formatBytes(_file_size));
-            });
-
-            MiscTools.GUIRun(() -> {
-                getView().getClose_button().setVisible(true);
-                getView().getQueue_up_button().setVisible(true);
-                getView().getQueue_down_button().setVisible(true);
-                getView().getQueue_top_button().setVisible(true);
-                getView().getQueue_bottom_button().setVisible(true);
-            });
-
         }
 
     }
@@ -1431,12 +1336,6 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
             if (++_paused_workers >= _chunkworkers.size() && !_exit) {
 
                 getView().printStatusNormal("Download paused!");
-
-                MiscTools.GUIRun(() -> {
-                    getView().getPause_button().setText(LabelTranslatorSingleton.getInstance().translate("RESUME DOWNLOAD"));
-                    getView().getPause_button().setEnabled(true);
-                });
-
             }
         }
     }
@@ -1444,12 +1343,6 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
     public void pause_worker_mono() {
 
         getView().printStatusNormal("Download paused!");
-
-        MiscTools.GUIRun(() -> {
-            getView().getPause_button().setText(LabelTranslatorSingleton.getInstance().translate("RESUME DOWNLOAD"));
-            getView().getPause_button().setEnabled(true);
-        });
-
     }
 
     public String getDownloadUrlForWorker() {
@@ -1558,10 +1451,6 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
 
                 if (!_chunkworkers.isEmpty()) {
 
-                    MiscTools.GUIRun(() -> {
-                        getView().getSlots_spinner().setEnabled(false);
-                    });
-
                     int i = _chunkworkers.size() - 1;
 
                     while (i >= 0) {
@@ -1600,16 +1489,8 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
 
                         _finalizing = true;
 
-                        MiscTools.GUIRun(() -> {
-                            getView().getSlots_spinner().setEnabled(false);
+                        getView().setSlots(getView().getSlots() - 1);
 
-                            getView().getSlots_spinner().setValue((int) getView().getSlots_spinner().getValue() - 1);
-                        });
-
-                    } else if (!_finalizing) {
-                        MiscTools.GUIRun(() -> {
-                            getView().getSlots_spinner().setEnabled(true);
-                        });
                     }
 
                     getView().updateSlotsStatus();
@@ -1618,13 +1499,6 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
                 if (!_exit && isPause() && _paused_workers >= _chunkworkers.size()) {
 
                     getView().printStatusNormal("Download paused!");
-
-                    MiscTools.GUIRun(() -> {
-                        getView().getPause_button().setText(LabelTranslatorSingleton.getInstance().translate("RESUME DOWNLOAD"));
-
-                        getView().getPause_button().setEnabled(true);
-                    });
-
                 }
             }
         }
@@ -1768,7 +1642,7 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
         }
     }
 
-    public String[] getMegaFileMetadata(String link, MainPanelView panel, boolean retry_request) throws APIException {
+    public String[] getMegaFileMetadata(String link, boolean retry_request) throws APIException {
 
         String[] file_info = null;
         int retry = 0, error_code;
@@ -1785,7 +1659,7 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
 
                 } else {
 
-                    file_info = MegaCrypterAPI.getMegaFileMetadata(link, panel, getMain_panel().getMega_proxy_server() != null ? (getMain_panel().getMega_proxy_server().getPort() + ":" + Bin2BASE64(("megacrypter:" + getMain_panel().getMega_proxy_server().getPassword()).getBytes("UTF-8"))) : null);
+                    file_info = MegaCrypterAPI.getMegaFileMetadata(link, getMain_panel().getMega_proxy_server() != null ? (getMain_panel().getMega_proxy_server().getPort() + ":" + Bin2BASE64(("megacrypter:" + getMain_panel().getMega_proxy_server().getPassword()).getBytes("UTF-8"))) : null);
                 }
 
             } catch (APIException ex) {
@@ -1810,7 +1684,7 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
                     // Source.LINK so -9 / -16 etc. get the link-context copy
                     // ("file deleted / blocked") instead of the
                     // account-context one ("account doesn't exist"). (#751 / D)
-                    MegaErrorMessages.showPopup(getMain_panel().getView(), error_code, link,
+                    MegaErrorMessages.showPopup(error_code, link,
                             "while fetching MEGA file metadata",
                             MegaErrorMessages.Source.LINK);
 
@@ -1824,13 +1698,6 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
                     }
 
                     _retrying_request = true;
-
-                    MiscTools.GUIRun(() -> {
-
-                        getView().getStop_button().setVisible(true);
-
-                        getView().getStop_button().setText(LabelTranslatorSingleton.getInstance().translate("CANCEL RETRY"));
-                    });
 
                     for (long i = getWaitTimeExpBackOff(retry++); i > 0 && !_exit; i--) {
                         if (error_code == -18) {
@@ -1858,12 +1725,6 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
         if (!_exit && !error) {
 
             _auto_retry_on_error = true;
-
-            MiscTools.GUIRun(() -> {
-                getView().getStop_button().setText(LabelTranslatorSingleton.getInstance().translate("CANCEL DOWNLOAD"));
-                getView().getStop_button().setVisible(false);
-            });
-
         }
 
         _retrying_request = false;
@@ -1909,7 +1770,7 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
                     // Source.LINK so -9 / -16 etc. get the link-context copy
                     // ("file deleted / blocked") instead of the
                     // account-context one ("account doesn't exist"). (#751 / D)
-                    MegaErrorMessages.showPopup(getMain_panel().getView(), error_code, link,
+                    MegaErrorMessages.showPopup(error_code, link,
                             "while fetching MEGA file metadata",
                             MegaErrorMessages.Source.LINK);
 
@@ -1918,12 +1779,6 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
                 } else {
 
                     _retrying_request = true;
-
-                    MiscTools.GUIRun(() -> {
-                        getView().getStop_button().setVisible(true);
-
-                        getView().getStop_button().setText(LabelTranslatorSingleton.getInstance().translate("CANCEL RETRY"));
-                    });
 
                     for (long i = getWaitTimeExpBackOff(retry++); i > 0 && !_exit; i--) {
                         if (error_code == -18) {
@@ -1945,12 +1800,6 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
         if (!_exit && !error) {
 
             _auto_retry_on_error = true;
-
-            MiscTools.GUIRun(() -> {
-                getView().getStop_button().setText(LabelTranslatorSingleton.getInstance().translate("CANCEL DOWNLOAD"));
-                getView().getStop_button().setVisible(false);
-            });
-
         }
 
         _retrying_request = false;
@@ -2098,7 +1947,7 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
     @Override
     public void unfreeze() {
 
-        getView().printStatusNormal(getView().getStatus_label().getText().replaceFirst("^\\([^)]+\\) ", ""));
+        getView().printStatusNormal(getView().getStatus().replaceFirst("^\\([^)]+\\) ", ""));
 
         _frozen = false;
     }

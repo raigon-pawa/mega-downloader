@@ -36,8 +36,7 @@ import java.util.logging.Logger;
  *
  * <p>{@link LabelTranslatorSingleton#translate(String)} is preserved as a
  * legacy shim that maps "English literal" -&gt; key by inverting the English
- * bundle, so call sites and NetBeans {@code .form} files keep working
- * unmodified.
+ * bundle, so existing call sites keep working unmodified.
  */
 public final class I18n {
 

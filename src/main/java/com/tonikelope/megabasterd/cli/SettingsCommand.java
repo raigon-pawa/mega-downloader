@@ -11,14 +11,12 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 
 /**
- * Generic key/value pass-through to the same {@code settings} SQLite table
- * the old Swing SettingsDialog read/wrote via DBTools -- every setting the
- * GUI exposed (download/upload slots, speed limits, proxy config, VPN
- * config once Phase 4 lands, etc.) is reachable this way. No CLI-side
- * validation of key names: this is intentionally a thin pass-through, same
- * as the GUI dialog was.
+ * Generic key/value pass-through to the {@code settings} SQLite table via
+ * DBTools -- every setting (download/upload slots, speed limits, proxy
+ * config, VPN config, etc.) is reachable this way. No CLI-side validation
+ * of key names: this is intentionally a thin pass-through.
  */
-@Command(name = "settings", mixinStandardHelpOptions = true, description = "Read or write app settings (same storage the old Settings dialog used).", subcommands = {
+@Command(name = "settings", mixinStandardHelpOptions = true, description = "Read or write app settings.", subcommands = {
     SettingsCommand.Get.class, SettingsCommand.Set.class
 })
 public class SettingsCommand {

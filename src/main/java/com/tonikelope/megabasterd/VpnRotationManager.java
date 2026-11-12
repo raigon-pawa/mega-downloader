@@ -47,38 +47,6 @@ public final class VpnRotationManager {
     public static final int VPN_CONNECT_TIMEOUT_DEFAULT = 30;
     public static final boolean FORCE_VPN_DEFAULT = false;
 
-    /**
-     * Compatibility constants only: the (unreachable, GUI-only) Settings
-     * dialog's SmartProxy tab still references these under their original
-     * SmartMegaProxyManager names for its default spinner/checkbox values.
-     * Since that dialog is never shown in the CLI/Docker product, exact
-     * values don't matter -- these just need to exist so the dead code
-     * compiles. Real VPN defaults are the constants above.
-     */
-    public static final int PROXY_AUTO_REFRESH_TIME = 60;
-    public static final int PROXY_BLOCK_TIME = VPN_COOLDOWN_DEFAULT;
-    public static final boolean RESET_SLOT_PROXY = true;
-    public static final boolean RANDOM_SELECT = true;
-
-    /**
-     * Compatibility stub: QuotaRecoveryPanel's "test proxy pool" diagnostic
-     * feature has no VPN equivalent (there's nothing to batch-test against
-     * a single machine-wide VPN connection). Always empty -- that dead-code
-     * path already handles an empty snapshot gracefully ("no proxies to
-     * test").
-     */
-    public List<String[]> getProxySnapshot() {
-        return Collections.emptyList();
-    }
-
-    /**
-     * Compatibility stub for the same dead-code path's "save working
-     * proxies" button. No-op.
-     */
-    public int saveWorkingProxiesToCustomList(java.util.Collection<String> working_addrs) throws java.sql.SQLException {
-        return 0;
-    }
-
     private final MainPanel _main_panel;
     private final Object _connect_lock = new Object();
     private final Map<String, Long> _location_cooldown_until = new ConcurrentHashMap<>();
@@ -101,9 +69,8 @@ public final class VpnRotationManager {
      * vpn_enabled}/{@code force_vpn}/{@code vpn_locations}/{@code
      * vpn_cooldown}/{@code vpn_connect_timeout}/{@code vpn_509_recheck_window}
      * -- deliberately NEW key names, independent of the old {@code
-     * smart_proxy}/{@code custom_proxy_list}/{@code smartproxy_*} keys the
-     * (now unreachable) GUI Settings dialog still reads/writes, so there is
-     * no ambiguity about which keys actually drive behaviour.
+     * smart_proxy}/{@code custom_proxy_list}/{@code smartproxy_*} keys, so
+     * there is no ambiguity about which keys actually drive behaviour.
      */
     public void refreshVpnSettings() {
 

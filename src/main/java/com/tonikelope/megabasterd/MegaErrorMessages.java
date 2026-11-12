@@ -4,31 +4,11 @@
  */
 package com.tonikelope.megabasterd;
 
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.awt.Component;
-import java.awt.Dimension;
-import java.awt.FlowLayout;
-import java.awt.Frame;
-import java.awt.Toolkit;
-import java.awt.datatransfer.StringSelection;
-import java.awt.event.KeyEvent;
 import java.util.concurrent.ConcurrentHashMap;
-import javax.swing.BorderFactory;
-import javax.swing.JButton;
-import javax.swing.JComponent;
-import javax.swing.JDialog;
-import javax.swing.JLabel;
-import javax.swing.JPanel;
-import javax.swing.KeyStroke;
-import javax.swing.SwingUtilities;
-import javax.swing.Timer;
-import javax.swing.UIManager;
-import javax.swing.WindowConstants;
 
 /**
  * Human-friendly mapping of MEGA API error codes to short name + meaning +
- * suggested action, plus a JOptionPane helper that pops a dialog explaining
+ * suggested action, plus a helper that reports (logs) an explanation of
  * what the user is looking at. Previously these errors surfaced as raw "FATAL
  * ERROR! MEGA API ERROR: -16" strings on row status labels (or silently as a
  * null quota) and the user had no idea whether the cause was MegaBasterd, the
@@ -344,44 +324,10 @@ public final class MegaErrorMessages {
     }
 
     /**
-     * Build the HTML body for the popup. Public so callers that want to log the
-     * human-friendly text (instead of showing a dialog) can reuse it.
-     */
-    public static String buildPopupHtml(int code, String identity, String context) {
-        return buildPopupHtml(code, identity, context, Source.GENERIC);
-    }
-
-    public static String buildPopupHtml(int code, String identity, String context, Source source) {
-        StringBuilder sb = new StringBuilder("<html><div style='width: 460px'>");
-        sb.append("<b style='font-size:13px'>").append(getTitle(code, source)).append("</b><br><br>");
-        if (identity != null && !identity.isEmpty()) {
-            sb.append("<i>").append(escapeHtml(identity)).append("</i><br><br>");
-        }
-        sb.append("<b>Error code:</b> ").append(code).append(" (").append(getShortName(code)).append(")<br><br>");
-        sb.append("<b>What this means:</b><br>").append(escapeHtml(getMeaning(code, source))).append("<br><br>");
-        sb.append("<b>What you can do:</b><br>").append(escapeHtml(getSuggestion(code, source)));
-        if (context != null && !context.isEmpty()) {
-            sb.append("<br><br><font color='gray'><i>Source: ").append(escapeHtml(context)).append("</i></font>");
-        }
-        if (isAccountBlocked(code) || isQuotaIssue(code)) {
-            sb.append("<br><br><font color='gray'><i>This error is enforced by MEGA's servers -- it is not a MegaBasterd bug.</i></font>");
-        }
-        sb.append("</div></html>");
-        return sb.toString();
-    }
-
-    private static String escapeHtml(String s) {
-        if (s == null) {
-            return "";
-        }
-        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
-    }
-
-    /**
      * Backwards-compatible showPopup (treats Source as GENERIC).
      */
-    public static void showPopup(Component parent, int code, String identity, String context) {
-        showPopup(parent, code, identity, context, Source.GENERIC);
+    public static void showPopup(int code, String identity, String context) {
+        showPopup(code, identity, context, Source.GENERIC);
     }
 
     /**
@@ -407,23 +353,20 @@ public final class MegaErrorMessages {
     }
 
     /**
-     * Show the MEGA-error popup. Custom JDialog rather than
-     * JOptionPane.showMessageDialog because we want a "Copy to clipboard"
-     * button that puts a GitHub-issue-ready markdown blob on the clipboard.
-     * Deduplicates so the same (code, source, identity) doesn't pop twice
-     * within {@link #POPUP_DEDUP_WINDOW_MS}. Always invoked on the EDT.
+     * Report a fatal MEGA error: logs the plain-text explanation (no
+     * window -- the engine is toolkit-free). Deduplicates so the same
+     * (code, source, identity) isn't reported twice within
+     * {@link #POPUP_DEDUP_WINDOW_MS}.
      *
-     * @param parent Dialog parent (may be null).
      * @param code MEGA API error code (negative).
      * @param identity Account email / link / file name this error applies to.
-     * Shown in italics under the title.
-     * @param context Free-text context to display in small grey. E.g. "while
+     * @param context Free-text context. E.g. "while
      * checking account quota" or "during chunk upload".
      * @param source ACCOUNT, LINK or GENERIC -- routes the explanation for
      * codes whose meaning depends on the calling operation
      * (notably -8, -9, -11, -14, -16).
      */
-    public static void showPopup(Component parent, int code, String identity, String context, Source source) {
+    public static void showPopup(int code, String identity, String context, Source source) {
         // Popups are reserved for FATAL_API_ERROR_CODES. Transient codes (-3,
         // -5 EFAILED, -18 ETEMPUNAVAIL, ...) are handled automatically by the
         // retry/backoff machinery; popping a dialog for them is just noise.
@@ -447,113 +390,10 @@ public final class MegaErrorMessages {
         LAST_POPUP_TS.put(dedup_key, now);
 
         final boolean is_error = isAccountBlocked(code) || (source == Source.LINK && isLinkBroken(code));
-        final String body = buildPopupHtml(code, identity, context, source);
-        final String title = getTitle(code, source);
-        final String plain = buildPlainText(code, identity, context, source);
 
-        // CLI/Docker mode: no human watching whatever display AWT thinks it
-        // has, so a real JDialog would just hang forever waiting for a
-        // click. Log the same plain-text summary the popup would have shown
-        // instead.
-        if (MainPanel.isCliMode()) {
-            java.util.logging.Logger.getLogger(MegaErrorMessages.class.getName())
-                    .log(is_error ? java.util.logging.Level.SEVERE : java.util.logging.Level.WARNING, plain);
-            return;
-        }
-
-        MiscTools.GUIRun(() -> {
-            Frame parent_frame = null;
-            if (parent != null) {
-                java.awt.Window w = SwingUtilities.getWindowAncestor(parent);
-                if (w instanceof Frame) {
-                    parent_frame = (Frame) w;
-                }
-            }
-
-            JDialog dialog = new JDialog(parent_frame, title, true);
-            dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
-
-            JPanel content = new JPanel(new BorderLayout(12, 12));
-            content.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
-
-            // Icon + HTML body side by side, matching JOptionPane's look.
-            JLabel icon_label = new JLabel(UIManager.getIcon(
-                    is_error ? "OptionPane.errorIcon" : "OptionPane.warningIcon"));
-            icon_label.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 12));
-            content.add(icon_label, BorderLayout.WEST);
-
-            JLabel body_label = new JLabel(body);
-            body_label.setVerticalAlignment(JLabel.TOP);
-            content.add(body_label, BorderLayout.CENTER);
-
-            JButton copy_button = new JButton("Copy to clipboard");
-            copy_button.setToolTipText("<html>Copy a markdown-formatted version of this error<br>"
-                    + "to the clipboard so you can paste it into a GitHub issue.</html>");
-            // Holder so the revert Timer can be cancelled if the user closes
-            // the dialog before it fires. Without this the Timer keeps a
-            // reference to the now-disposed JButton until the timer thread
-            // fires, leaking the dialog tree until then.
-            final Timer[] revert_holder = new Timer[1];
-            copy_button.addActionListener(e -> {
-                try {
-                    Toolkit.getDefaultToolkit().getSystemClipboard()
-                            .setContents(new StringSelection(plain), null);
-                    copy_button.setText("Copied to clipboard");
-                    copy_button.setForeground(new Color(0, 128, 0));
-                    if (revert_holder[0] != null) {
-                        revert_holder[0].stop();
-                    }
-                    Timer revert = new Timer(1800, ev -> {
-                        copy_button.setText("Copy to clipboard");
-                        copy_button.setForeground(null);
-                    });
-                    revert.setRepeats(false);
-                    revert_holder[0] = revert;
-                    revert.start();
-                } catch (Exception ex) {
-                    copy_button.setText("Copy failed");
-                    copy_button.setForeground(Color.RED);
-                }
-            });
-
-            JButton ok_button = new JButton("OK");
-            ok_button.addActionListener(e -> dialog.dispose());
-
-            JPanel footer = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
-            footer.add(copy_button);
-            footer.add(ok_button);
-            content.add(footer, BorderLayout.SOUTH);
-
-            dialog.setContentPane(content);
-
-            // Esc and Enter close the dialog. Default button = OK.
-            dialog.getRootPane().setDefaultButton(ok_button);
-            dialog.getRootPane().registerKeyboardAction(
-                    e -> dialog.dispose(),
-                    KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
-                    JComponent.WHEN_IN_FOCUSED_WINDOW);
-
-            // Cancel any pending revert timer when the dialog closes -- the
-            // Timer holds a reference to the now-disposed JButton.
-            dialog.addWindowListener(new java.awt.event.WindowAdapter() {
-                @Override
-                public void windowClosed(java.awt.event.WindowEvent ev) {
-                    if (revert_holder[0] != null) {
-                        revert_holder[0].stop();
-                        revert_holder[0] = null;
-                    }
-                }
-            });
-
-            dialog.pack();
-            // Keep the dialog from rendering ridiculously narrow on minimal
-            // bodies (the HTML body has a fixed width but the icon column
-            // might still squash it on some LAFs).
-            Dimension d = dialog.getPreferredSize();
-            dialog.setMinimumSize(new Dimension(Math.max(560, d.width), d.height));
-            dialog.setLocationRelativeTo(parent);
-            dialog.setVisible(true);
-        });
+        java.util.logging.Logger.getLogger(MegaErrorMessages.class.getName())
+                .log(is_error ? java.util.logging.Level.SEVERE : java.util.logging.Level.WARNING,
+                        buildPlainText(code, identity, context, source));
     }
 
     /**

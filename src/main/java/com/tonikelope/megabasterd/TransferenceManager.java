@@ -5,8 +5,6 @@
 package com.tonikelope.megabasterd;
 
 import static com.tonikelope.megabasterd.MainPanel.*;
-import java.awt.Component;
-import java.awt.TrayIcon;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -15,7 +13,6 @@ import java.util.concurrent.Executors;
 import java.util.logging.Level;
 import static java.util.logging.Level.SEVERE;
 import java.util.logging.Logger;
-import javax.swing.JPanel;
 
 /**
  * Yes, this class is a f*cking mess (inside "natural" MegaBasterd mess) and
@@ -38,11 +35,7 @@ abstract public class TransferenceManager implements Runnable, SecureSingleThrea
     protected final ConcurrentLinkedQueue<Transference> _transference_finished_queue;
     protected final ConcurrentLinkedQueue<Transference> _transference_running_list;
 
-    private final javax.swing.JPanel _scroll_panel;
-    private final javax.swing.JLabel _status;
-    private final javax.swing.JButton _close_all_button;
-    private final javax.swing.JButton _pause_all_button;
-    private final javax.swing.MenuElement _clean_all_menu;
+    private volatile String _status = "";
     private int _max_running_trans;
     private final MainPanel _main_panel;
     private final Object _secure_notify_lock;
@@ -54,7 +47,6 @@ abstract public class TransferenceManager implements Runnable, SecureSingleThrea
     private volatile boolean _starting_transferences;
     private volatile boolean _preprocessing_transferences;
     private volatile boolean _paused_all;
-    private boolean _tray_icon_finish;
     protected volatile long _total_size;
     protected final Object _total_size_lock;
     protected volatile long _total_progress;
@@ -66,10 +58,7 @@ abstract public class TransferenceManager implements Runnable, SecureSingleThrea
      * #774 -- latch so the post-finish user command fires exactly once per
      * "non-empty -> empty" queue transition. Reset together with
      * {@link #_all_finished} whenever a new transference enters the
-     * pipeline, so the next batch retriggers the command. Kept separate
-     * from {@code _all_finished} / {@code _tray_icon_finish} because the
-     * tray notification only fires when the main window is hidden, but
-     * the post-finish command must fire regardless of visibility.
+     * pipeline, so the next batch retriggers the command.
      */
     protected volatile boolean _finish_command_fired = false;
 
@@ -93,7 +82,7 @@ abstract public class TransferenceManager implements Runnable, SecureSingleThrea
      * empty with at least one OK finish" transition. Default implementation
      * is a no-op; {@link DownloadManager} and {@link UploadManager} override
      * to spawn their respective user-configured external command. Runs on
-     * the EDT (called from {@code _updateView}'s GUIRun), so anything
+     * the manager thread (called from {@code _updateView}), so anything
      * blocking must be off-loaded; the current implementations just call
      * {@code MainPanel.run_*_finish_command()} which itself does a non-
      * blocking {@code ProcessBuilder.start()}.
@@ -102,22 +91,16 @@ abstract public class TransferenceManager implements Runnable, SecureSingleThrea
         // Default: nothing. Subclasses override.
     }
 
-    public TransferenceManager(MainPanel main_panel, int max_running_trans, javax.swing.JLabel status, javax.swing.JPanel scroll_panel, javax.swing.JButton close_all_button, javax.swing.JButton pause_all_button, javax.swing.MenuElement clean_all_menu) {
+    public TransferenceManager(MainPanel main_panel, int max_running_trans) {
         _notified = false;
         _paused_all = false;
         _removing_transferences = false;
         _provisioning_transferences = false;
         _starting_transferences = false;
         _preprocessing_transferences = false;
-        _tray_icon_finish = false;
         _main_panel = main_panel;
         _max_running_trans = max_running_trans;
-        _scroll_panel = scroll_panel;
-        _status = status;
         _pause_all_lock = new Object();
-        _close_all_button = close_all_button;
-        _pause_all_button = pause_all_button;
-        _clean_all_menu = clean_all_menu;
         _total_size = 0L;
         _total_progress = 0L;
         _secure_notify_lock = new Object();
@@ -303,8 +286,9 @@ abstract public class TransferenceManager implements Runnable, SecureSingleThrea
 
     }
 
-    public JPanel getScroll_panel() {
-        return _scroll_panel;
+    /** One-line queue summary ("Pre: 0 / Pro: 1 / ..."), "" when empty. */
+    public String getStatus() {
+        return _status;
     }
 
     public void closeAllFinished() {
@@ -378,32 +362,6 @@ abstract public class TransferenceManager implements Runnable, SecureSingleThrea
         secureNotify();
     }
 
-    private void _reorderScrollPanel() {
-
-        ArrayList<Transference> desired = new ArrayList<>(getTransference_waitstart_queue());
-        desired.addAll(getTransference_finished_queue());
-
-        MiscTools.GUIRun(() -> {
-            Component panel = (Component) getScroll_panel();
-            if (panel == null) {
-                return;
-            }
-            int z = 0;
-            for (Transference t : desired) {
-                Component view = (Component) t.getView();
-                if (view != null && view.getParent() == getScroll_panel() && z < getScroll_panel().getComponentCount()) {
-                    try {
-                        getScroll_panel().setComponentZOrder(view, z);
-                    } catch (IllegalArgumentException ignore) {
-                    }
-                    z++;
-                }
-            }
-            getScroll_panel().revalidate();
-            getScroll_panel().repaint();
-        });
-    }
-
     public void topWaitQueue(Transference t) {
 
         synchronized (getWait_queue_lock()) {
@@ -423,7 +381,6 @@ abstract public class TransferenceManager implements Runnable, SecureSingleThrea
 
             getTransference_waitstart_queue().addAll(wait_array);
 
-            _reorderScrollPanel();
         }
 
         secureNotify();
@@ -448,7 +405,6 @@ abstract public class TransferenceManager implements Runnable, SecureSingleThrea
 
             getTransference_waitstart_queue().addAll(wait_array);
 
-            _reorderScrollPanel();
         }
 
         secureNotify();
@@ -480,7 +436,6 @@ abstract public class TransferenceManager implements Runnable, SecureSingleThrea
 
             getTransference_waitstart_queue().addAll(wait_array);
 
-            _reorderScrollPanel();
         }
 
         secureNotify();
@@ -512,7 +467,6 @@ abstract public class TransferenceManager implements Runnable, SecureSingleThrea
 
             getTransference_waitstart_queue().addAll(wait_array);
 
-            _reorderScrollPanel();
         }
 
         secureNotify();
@@ -568,13 +522,6 @@ abstract public class TransferenceManager implements Runnable, SecureSingleThrea
 
             _paused_all = true;
 
-            MiscTools.GUIRun(() -> {
-
-                _pause_all_button.setText(LabelTranslatorSingleton.getInstance().translate("RESUME ALL"));
-                _pause_all_button.setEnabled(true);
-
-            });
-
             secureNotify();
 
         });
@@ -592,14 +539,6 @@ abstract public class TransferenceManager implements Runnable, SecureSingleThrea
         });
 
         _paused_all = false;
-
-        MiscTools.GUIRun(() -> {
-
-            _pause_all_button.setText(LabelTranslatorSingleton.getInstance().translate("PAUSE ALL"));
-
-            _pause_all_button.setEnabled(true);
-
-        });
 
         secureNotify();
     }
@@ -658,53 +597,7 @@ abstract public class TransferenceManager implements Runnable, SecureSingleThrea
     }
 
     private void _updateView() {
-
-        MiscTools.GUIRun(() -> {
-
-            if (this instanceof DownloadManager) {
-
-                _main_panel.getView().getForce_chunk_reset_button().setVisible(MainPanel.isUse_smart_proxy() && !getTransference_running_list().isEmpty());
-                _main_panel.getView().getCancel_all_downloads_menu().setEnabled(!_transference_preprocess_queue.isEmpty() || !_transference_provision_queue.isEmpty() || !getTransference_waitstart_queue().isEmpty() || !getTransference_running_list().isEmpty());
-                _main_panel.getView().getDownload_status_bar().setVisible(!_transference_preprocess_global_queue.isEmpty() || !_transference_preprocess_queue.isEmpty() || !_transference_provision_queue.isEmpty());
-
-            } else {
-                _main_panel.getView().getUpload_status_bar().setVisible(!_transference_preprocess_global_queue.isEmpty() || !_transference_preprocess_queue.isEmpty() || !_transference_provision_queue.isEmpty());
-            }
-
-            if (_paused_all) {
-                _pause_all_button.setText(LabelTranslatorSingleton.getInstance().translate("RESUME ALL"));
-            } else {
-                _pause_all_button.setText(LabelTranslatorSingleton.getInstance().translate("PAUSE ALL"));
-                _pause_all_button.setVisible(!getTransference_running_list().isEmpty());
-            }
-
-            _clean_all_menu.getComponent().setEnabled(!_transference_preprocess_queue.isEmpty() || !_transference_provision_queue.isEmpty() || !getTransference_waitstart_queue().isEmpty());
-
-            if (!_transference_finished_queue.isEmpty()) {
-
-                _close_all_button.setText(LabelTranslatorSingleton.getInstance().translate("Clear finished"));
-
-                _close_all_button.setVisible(true);
-
-            } else {
-
-                _close_all_button.setVisible(false);
-            }
-
-            _status.setText(_genStatus());
-
-            _main_panel.getView().getUnfreeze_transferences_button().setVisible(_main_panel.getDownload_manager().hasFrozenTransferences() || _main_panel.getUpload_manager().hasFrozenTransferences());
-
-            // Do NOT revalidate+repaint the scroll panel here. _updateView fires
-            // on every secureNotify -- which means every chunk completion, every
-            // provision, every progress tick. With N rows in BoxLayout, a full
-            // revalidate is O(N) layout work; aggregated this was the dominant
-            // EDT cost. The mutating helpers (topWaitQueue, bottomWaitQueue,
-            // remove, provision, _reorderScrollPanel) already revalidate the
-            // scroll panel themselves when they actually change child layout;
-            // _updateView only changes the status labels and toolbar buttons,
-            // which don't need a viewport relayout.
-        });
+        _status = _genStatus();
     }
 
     private String _genStatus() {
@@ -726,18 +619,8 @@ abstract public class TransferenceManager implements Runnable, SecureSingleThrea
 
         int finish = _transference_finished_queue.size();
 
-        if (!_all_finished && !_tray_icon_finish && finish > 0 && pre + prov + wait + run == 0 && !_main_panel.getView().isVisible()) {
-
-            _tray_icon_finish = true;
-
-            _all_finished = true;
-
-            _main_panel.getTrayicon().displayMessage("MegaBasterd says:", "All your transferences have finished", TrayIcon.MessageType.INFO);
-        }
-
         // #774 -- post-finish user command. Fires once per "non-empty ->
-        // empty with at least one OK finish" transition, independent of
-        // window visibility and of the tray-notification latch above. Gated
+        // empty with at least one OK finish" transition, Gated
         // by _isOKFinishedInQueue() so a queue that ended only in errors
         // or cancellations does NOT trigger the command -- the user's
         // post-processing script almost always assumes "there are real
@@ -858,8 +741,6 @@ abstract public class TransferenceManager implements Runnable, SecureSingleThrea
 
                 setProvisioning_transferences(true);
 
-                _tray_icon_finish = false;
-
                 THREAD_POOL.execute(() -> {
 
                     ExecutorService executor = Executors.newFixedThreadPool(MAX_PROVISION_WORKERS);
@@ -883,23 +764,6 @@ abstract public class TransferenceManager implements Runnable, SecureSingleThrea
                                         bounded_executor.submitTask(() -> {
                                             provision(transference);
 
-                                            if (this instanceof DownloadManager) {
-                                                MiscTools.GUIRun(() -> {
-
-                                                    _main_panel.getView().getDownload_status_bar().setIndeterminate(false);
-                                                    _main_panel.getView().getDownload_status_bar().setValue(_main_panel.getView().getDownload_status_bar().getValue() + 1);
-                                                    _main_panel.getView().getDownload_status_bar().setVisible((_main_panel.getView().getDownload_status_bar().getValue() < _main_panel.getView().getDownload_status_bar().getMaximum()));
-
-                                                });
-                                            } else {
-                                                MiscTools.GUIRun(() -> {
-
-                                                    _main_panel.getView().getUpload_status_bar().setIndeterminate(false);
-                                                    _main_panel.getView().getUpload_status_bar().setValue(_main_panel.getView().getUpload_status_bar().getValue() + 1);
-                                                    _main_panel.getView().getUpload_status_bar().setVisible((_main_panel.getView().getUpload_status_bar().getValue() < _main_panel.getView().getUpload_status_bar().getMaximum()));
-
-                                                });
-                                            }
                                         });
                                     } catch (InterruptedException ex) {
                                         Logger.getLogger(TransferenceManager.class.getName()).log(Level.SEVERE, null, ex);
@@ -952,7 +816,6 @@ abstract public class TransferenceManager implements Runnable, SecureSingleThrea
 
                         sortTransferenceQueue(getTransference_finished_queue());
 
-                        _reorderScrollPanel();
 
                     }
 

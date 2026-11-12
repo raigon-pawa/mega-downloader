@@ -4,25 +4,7 @@
  */
 package com.tonikelope.megabasterd;
 
-import static com.tonikelope.megabasterd.MainPanel.THREAD_POOL;
 import static com.tonikelope.megabasterd.MainPanel.VERSION;
-import java.awt.Color;
-import java.awt.Component;
-import java.awt.Container;
-import java.awt.Desktop;
-import java.awt.Dialog;
-import java.awt.Font;
-import java.awt.FontFormatException;
-import java.awt.Frame;
-import java.awt.Graphics2D;
-import java.awt.GraphicsEnvironment;
-import java.awt.Image;
-import java.awt.Toolkit;
-import java.awt.datatransfer.Clipboard;
-import java.awt.datatransfer.DataFlavor;
-import java.awt.datatransfer.StringSelection;
-import java.awt.datatransfer.Transferable;
-import java.awt.image.BufferedImage;
 import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -35,13 +17,11 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.UnsupportedEncodingException;
 import java.lang.management.ManagementFactory;
-import java.lang.reflect.InvocationTargetException;
 import java.math.BigInteger;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.net.MalformedURLException;
 import java.net.Proxy;
-import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLDecoder;
@@ -63,47 +43,13 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.Date;
-import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.Callable;
-import java.util.concurrent.FutureTask;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import javax.sound.midi.InvalidMidiDataException;
-import javax.sound.midi.MidiEvent;
-import javax.sound.midi.MidiSystem;
-import javax.sound.midi.MidiUnavailableException;
-import javax.sound.midi.Sequence;
-import javax.sound.midi.Sequencer;
-import javax.sound.midi.ShortMessage;
-import javax.sound.midi.Synthesizer;
-import javax.sound.midi.Track;
-import javax.swing.AbstractButton;
-import javax.swing.JComponent;
-import javax.swing.JDialog;
-import javax.swing.JLabel;
-import javax.swing.JMenu;
-import javax.swing.JMenuItem;
-import javax.swing.JOptionPane;
-import javax.swing.JPanel;
-import javax.swing.JPopupMenu;
-import javax.swing.JTree;
-import javax.swing.SwingUtilities;
-import javax.swing.UIDefaults;
-import javax.swing.UIManager;
-import javax.swing.border.TitledBorder;
-import javax.swing.tree.DefaultMutableTreeNode;
-import javax.swing.tree.DefaultTreeModel;
-import javax.swing.tree.MutableTreeNode;
-import javax.swing.tree.TreeNode;
-import javax.swing.tree.TreePath;
 import javax.xml.bind.DatatypeConverter;
 import javax.xml.bind.annotation.adapters.HexBinaryAdapter;
 
@@ -120,24 +66,6 @@ public class MiscTools {
     public static final int HTTP_TIMEOUT = 30;
     public static final String UPLOAD_LOGS_DIR = System.getProperty("user.home") + File.separator + "MEGABASTERD_UPLOAD_LOGS";
 
-    private static final Comparator<DefaultMutableTreeNode> TREE_NODE_COMPARATOR = (DefaultMutableTreeNode a, DefaultMutableTreeNode b) -> {
-        if (a.isLeaf() && !b.isLeaf()) {
-            return 1;
-        } else if (!a.isLeaf() && b.isLeaf()) {
-            return -1;
-        } else {
-
-            Object ca = a.getUserObject();
-
-            Object cb = b.getUserObject();
-
-            if (ca instanceof String) {
-                return MiscTools.naturalCompare((String) ca, (String) cb, true);
-            } else {
-                return MiscTools.naturalCompare((String) ((Map) ca).get("name"), (String) ((Map) cb).get("name"), true);
-            }
-        }
-    };
     private static final Logger LOG = Logger.getLogger(MiscTools.class.getName());
 
     public static String computeFileSHA1(File file) throws IOException {
@@ -222,18 +150,6 @@ public class MiscTools {
         }
     }
 
-    public static void containerSetEnabled(Container panel, boolean enabled) {
-
-        for (Component cp : panel.getComponents()) {
-
-            if (cp instanceof Container) {
-                containerSetEnabled((Container) cp, enabled);
-            }
-
-            cp.setEnabled(enabled);
-        }
-    }
-
     public static String getFechaHoraActual() {
 
         String format = "dd-MM-yyyy HH:mm:ss";
@@ -289,64 +205,6 @@ public class MiscTools {
         Files.delete(path);
     }
 
-    public static Font createAndRegisterFont(String name) {
-
-        Font font = null;
-
-        try {
-
-            font = Font.createFont(Font.TRUETYPE_FONT, MiscTools.class.getResourceAsStream(name));
-
-            GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
-
-            ge.registerFont(font);
-
-        } catch (FontFormatException | IOException ex) {
-            Logger.getLogger(MiscTools.class.getName()).log(Level.SEVERE, ex.getMessage());
-        }
-
-        return font;
-    }
-
-    public static void setNimbusLookAndFeel(boolean dark) {
-
-        try {
-            for (javax.swing.UIManager.LookAndFeelInfo info : javax.swing.UIManager.getInstalledLookAndFeels()) {
-
-                if ("Nimbus".equals(info.getName())) {
-
-                    javax.swing.UIManager.setLookAndFeel(info.getClassName());
-
-                    if (dark) {
-                        // Dark LAF
-                        UIManager.put("control", new Color(128, 128, 128));
-                        UIManager.put("info", new Color(128, 128, 128));
-                        UIManager.put("nimbusBase", new Color(18, 30, 49));
-                        UIManager.put("nimbusAlertYellow", new Color(248, 187, 0));
-                        UIManager.put("nimbusDisabledText", new Color(100, 100, 100));
-                        UIManager.put("nimbusFocus", new Color(115, 164, 209));
-                        UIManager.put("nimbusGreen", new Color(176, 179, 50));
-                        UIManager.put("nimbusInfoBlue", new Color(66, 139, 221));
-                        UIManager.put("nimbusLightBackground", new Color(18, 30, 49));
-                        UIManager.put("nimbusOrange", new Color(191, 98, 4));
-                        UIManager.put("nimbusRed", new Color(169, 46, 34));
-                        UIManager.put("nimbusSelectedText", new Color(255, 255, 255));
-                        UIManager.put("nimbusSelectionBackground", new Color(104, 93, 156));
-                        UIManager.put("text", new Color(230, 230, 230));
-
-                    } else {
-                        UIDefaults defaults = UIManager.getLookAndFeelDefaults();
-                        defaults.put("nimbusOrange", defaults.get("nimbusFocus"));
-                    }
-
-                    break;
-                }
-            }
-        } catch (Exception ex) {
-            java.util.logging.Logger.getLogger(MiscTools.class.getName()).log(java.util.logging.Level.SEVERE, ex.getMessage());
-        }
-    }
-
     public static int[] bin2i32a(byte[] bin) {
         int l = (int) (4 * Math.ceil((double) bin.length / 4));
 
@@ -382,23 +240,6 @@ public class MiscTools {
         BigInteger bigi = new BigInteger(1, ns);
 
         return bigi;
-    }
-
-    public static BufferedImage toBufferedImage(Image img) {
-        if (img instanceof BufferedImage) {
-            return (BufferedImage) img;
-        }
-
-        // Create a buffered image with transparency
-        BufferedImage bimage = new BufferedImage(img.getWidth(null), img.getHeight(null), BufferedImage.TYPE_INT_ARGB);
-
-        // Draw the image on to the buffered image
-        Graphics2D bGr = bimage.createGraphics();
-        bGr.drawImage(img, 0, 0, null);
-        bGr.dispose();
-
-        // Return the buffered image
-        return bimage;
     }
 
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
@@ -511,158 +352,6 @@ public class MiscTools {
         return matches;
     }
 
-    public static void updateFonts(final Component component, final Font font, final float zoom_factor) {
-
-        if (component != null) {
-
-            if (component instanceof javax.swing.JMenu) {
-
-                for (Component child : ((javax.swing.JMenu) component).getMenuComponents()) {
-                    if (child instanceof JMenuItem) {
-
-                        updateFonts(child, font, zoom_factor);
-                    }
-                }
-
-            } else if (component instanceof Container) {
-
-                for (Component child : ((Container) component).getComponents()) {
-                    if (child instanceof Container) {
-
-                        updateFonts(child, font, zoom_factor);
-                    }
-                }
-            }
-
-            Font old_font = component.getFont();
-
-            Font new_font = font.deriveFont(old_font.getStyle(), Math.round(old_font.getSize() * zoom_factor));
-
-            // Cap retries: setFont should not throw, but if it does (headless
-            // contexts have surfaced odd cases) we don't want to spin the EDT
-            // forever as the old "do { ... } while (error)" with no bound did.
-            int attempts = 0;
-            while (true) {
-                try {
-                    component.setFont(new_font);
-                    break;
-                } catch (Exception ex) {
-                    if (++attempts >= 3) {
-                        Logger.getLogger(MiscTools.class.getName()).log(Level.WARNING, "setFont failed after {0} attempts: {1}", new Object[]{attempts, ex.getMessage()});
-                        break;
-                    }
-                }
-            }
-
-        }
-    }
-
-    public static void translateLabels(final Component component) {
-
-        if (component == null) {
-            return;
-        }
-
-        // Tooltips live on every JComponent regardless of subtype; translate
-        // them up-front so JSpinner / JTextField / JComboBox tooltips are also
-        // covered (previously only JLabel/JButton/JCheckBox text was).
-        if (component instanceof JComponent) {
-            JComponent jc = (JComponent) component;
-            String tip = jc.getToolTipText();
-            if (tip != null && !tip.isEmpty()) {
-                jc.setToolTipText(LabelTranslatorSingleton.getInstance().translate(tip));
-            }
-        }
-
-        if (component instanceof javax.swing.JLabel) {
-
-            ((JLabel) component).setText(LabelTranslatorSingleton.getInstance().translate(((JLabel) component).getText()));
-
-        } else if (component instanceof javax.swing.JButton) {
-
-            ((AbstractButton) component).setText(LabelTranslatorSingleton.getInstance().translate(((AbstractButton) component).getText()));
-
-        } else if (component instanceof javax.swing.JCheckBox) {
-
-            ((AbstractButton) component).setText(LabelTranslatorSingleton.getInstance().translate(((AbstractButton) component).getText()));
-
-        } else if (component instanceof javax.swing.JRadioButton) {
-
-            ((AbstractButton) component).setText(LabelTranslatorSingleton.getInstance().translate(((AbstractButton) component).getText()));
-
-        } else if ((component instanceof JMenuItem) && !(component instanceof JMenu)) {
-
-            ((AbstractButton) component).setText(LabelTranslatorSingleton.getInstance().translate(((AbstractButton) component).getText()));
-
-        } else if (component instanceof JMenu) {
-
-            for (Component child : ((JMenu) component).getMenuComponents()) {
-                if (child instanceof JMenuItem) {
-                    translateLabels(child);
-                }
-            }
-
-            ((AbstractButton) component).setText(LabelTranslatorSingleton.getInstance().translate(((AbstractButton) component).getText()));
-
-        } else if (component instanceof Container) {
-
-            for (Component child : ((Container) component).getComponents()) {
-                if (child instanceof Container) {
-
-                    translateLabels(child);
-                }
-            }
-
-            if ((component instanceof JPanel) && (((JComponent) component).getBorder() instanceof TitledBorder)) {
-                ((TitledBorder) ((JComponent) component).getBorder()).setTitle(LabelTranslatorSingleton.getInstance().translate(((TitledBorder) ((JComponent) component).getBorder()).getTitle()));
-            }
-
-            if (component instanceof JDialog) {
-                ((Dialog) component).setTitle(LabelTranslatorSingleton.getInstance().translate(((Dialog) component).getTitle()));
-            }
-        }
-    }
-
-    public static Sequencer midiLoopPlay(String midi, int volume) {
-        try {
-            Sequencer sequencer = MidiSystem.getSequencer();
-
-            if (sequencer == null) {
-                Logger.getLogger(MiscTools.class.getName()).log(Level.SEVERE, "MIDI Sequencer device not supported");
-                return null;
-            }
-
-            Synthesizer synthesizer = MidiSystem.getSynthesizer();
-
-            Sequence sequence = MidiSystem.getSequence(MiscTools.class.getResource(midi));
-
-            for (Track t : sequence.getTracks()) {
-
-                for (int k = 0; k < synthesizer.getChannels().length; k++) {
-                    t.add(new MidiEvent(new ShortMessage(ShortMessage.CONTROL_CHANGE, k, 7, volume), t.ticks()));
-                }
-            }
-
-            sequencer.open();
-            sequencer.setSequence(sequence);
-            sequencer.setLoopCount(Sequencer.LOOP_CONTINUOUSLY);
-            sequencer.start();
-            return sequencer;
-        } catch (MidiUnavailableException | InvalidMidiDataException | IOException ex) {
-            Logger.getLogger(MiscTools.class.getName()).log(Level.SEVERE, null, ex);
-        }
-        return null;
-    }
-
-    public static void updateTitledBorderFont(final TitledBorder border, final Font font, final float zoom_factor) {
-
-        Font old_title_font = border.getTitleFont();
-
-        Font new_title_font = font.deriveFont(old_title_font.getStyle(), Math.round(old_title_font.getSize() * zoom_factor));
-
-        border.setTitleFont(new_title_font);
-    }
-
     public static String HashString(String algo, String data) {
         try {
             MessageDigest md = MessageDigest.getInstance(algo);
@@ -724,59 +413,6 @@ public class MiscTools {
 
     }
 
-    public static final boolean STRICT_EDT_CHECKS = Boolean.getBoolean("megabasterd.strict_edt");
-
-    private static Runnable _wrapEdtCheck(Runnable r) {
-        if (!STRICT_EDT_CHECKS) {
-            return r;
-        }
-        return () -> {
-            if (!SwingUtilities.isEventDispatchThread()) {
-                Logger.getLogger(MiscTools.class.getName()).log(Level.WARNING, "GUIRun body executed off-EDT", new IllegalStateException());
-            }
-            r.run();
-        };
-    }
-
-    public static void GUIRun(Runnable r) {
-
-        Runnable runnable = _wrapEdtCheck(r);
-
-        if (!SwingUtilities.isEventDispatchThread()) {
-            SwingUtilities.invokeLater(runnable);
-        } else {
-            runnable.run();
-        }
-
-    }
-
-    public static void GUIRunAndWait(Runnable r) {
-
-        Runnable runnable = _wrapEdtCheck(r);
-
-        try {
-            if (!SwingUtilities.isEventDispatchThread()) {
-                SwingUtilities.invokeAndWait(runnable);
-            } else {
-                runnable.run();
-            }
-        } catch (Exception ex) {
-
-            Logger.getLogger(MiscTools.class.getName()).log(Level.SEVERE, null, ex);
-
-        }
-
-    }
-
-    public static FutureTask futureRun(Callable c) {
-
-        FutureTask f = new FutureTask(c);
-
-        THREAD_POOL.execute(f);
-
-        return f;
-    }
-
     public static long getWaitTimeExpBackOff(int retryCount) {
 
         long waitTime = ((long) Math.pow(EXP_BACKOFF_BASE, retryCount) * EXP_BACKOFF_SECS_RETRY);
@@ -795,19 +431,10 @@ public class MiscTools {
         return DatatypeConverter.parseHexBinary(s);
     }
 
-    public static void copyTextToClipboard(String text) {
-
-        StringSelection stringSelection = new StringSelection(text);
-        Clipboard clpbrd = Toolkit.getDefaultToolkit().getSystemClipboard();
-        clpbrd.setContents(stringSelection, null);
-
-    }
-
     private static final String[] FORMAT_BYTES_UNITS = {"B", "KB", "MB", "GB", "TB"};
 
     // DecimalFormat is not thread-safe but is allocated on hot paths (every
-    // SpeedMeter tick × every row, every memory-monitor tick, every JTree
-    // cell paint). Cache one per thread. Locale.ROOT for consistent
+    // SpeedMeter tick × every row, every memory-monitor tick). Cache one per thread. Locale.ROOT for consistent
     // "1.5 MB" across locales (was "1,5 MB" on Spanish/German systems).
     private static final ThreadLocal<DecimalFormat> FORMAT_BYTES_DF = ThreadLocal.withInitial(
             () -> new DecimalFormat("#.##", java.text.DecimalFormatSymbols.getInstance(java.util.Locale.ROOT)));
@@ -827,171 +454,6 @@ public class MiscTools {
         return FORMAT_BYTES_DF.get().format(bytes_double) + ' ' + FORMAT_BYTES_UNITS[pow];
     }
 
-    public static MegaMutableTreeNode calculateTreeFolderSizes(MegaMutableTreeNode node) {
-
-        int n = node.getChildCount();
-
-        for (int i = 0; i < n; i++) {
-
-            if (node.getChildAt(i).isLeaf()) {
-                node.setMega_node_size(node.getMega_node_size() + ((MegaMutableTreeNode) node.getChildAt(i)).getMega_node_size());
-            } else {
-                calculateTreeFolderSizes((MegaMutableTreeNode) node.getChildAt(i));
-                node.setMega_node_size(node.getMega_node_size() + ((MegaMutableTreeNode) node.getChildAt(i)).getMega_node_size());
-            }
-        }
-
-        return node;
-
-    }
-
-    public static MegaMutableTreeNode resetTreeFolderSizes(MegaMutableTreeNode node) {
-
-        if (!node.isLeaf()) {
-
-            node.setMega_node_size(0);
-
-            int n = node.getChildCount();
-
-            for (int i = 0; i < n; i++) {
-
-                if (!node.getChildAt(i).isLeaf()) {
-                    resetTreeFolderSizes((MegaMutableTreeNode) node.getChildAt(i));
-                }
-            }
-        }
-
-        return node;
-
-    }
-
-    public static MegaMutableTreeNode findMegaTreeNodeByID(MegaMutableTreeNode root, String node_id) {
-
-        Enumeration e = root.depthFirstEnumeration();
-
-        while (e.hasMoreElements()) {
-
-            MegaMutableTreeNode node = (MegaMutableTreeNode) e.nextElement();
-
-            HashMap<String, Object> mega_node = (HashMap<String, Object>) node.getUserObject();
-
-            if (mega_node.get("h").equals(node_id)) {
-                return node;
-            }
-        }
-
-        return null;
-    }
-
-    public static DefaultMutableTreeNode sortTree(DefaultMutableTreeNode root) {
-
-        Enumeration e = root.depthFirstEnumeration();
-
-        while (e.hasMoreElements()) {
-
-            DefaultMutableTreeNode node = (DefaultMutableTreeNode) e.nextElement();
-
-            if (!node.isLeaf()) {
-
-                _sortTreeNode(node);
-
-            }
-        }
-
-        return root;
-
-    }
-
-    private static void _sortTreeNode(DefaultMutableTreeNode parent) {
-
-        int n = parent.getChildCount();
-
-        List<DefaultMutableTreeNode> children = new ArrayList<>(n);
-
-        for (int i = 0; i < n; i++) {
-
-            children.add((DefaultMutableTreeNode) parent.getChildAt(i));
-        }
-
-        Collections.sort(children, TREE_NODE_COMPARATOR);
-
-        parent.removeAllChildren();
-
-        children.forEach((node) -> {
-            parent.add(node);
-        });
-    }
-
-    public static boolean deleteSelectedTreeItems(JTree tree) {
-
-        TreePath[] paths = tree.getSelectionPaths();
-
-        if (paths != null) {
-
-            DefaultTreeModel tree_model = (DefaultTreeModel) tree.getModel();
-
-            MutableTreeNode node;
-
-            for (TreePath path : paths) {
-
-                node = (MutableTreeNode) path.getLastPathComponent();
-
-                if (node != null) {
-
-                    if (node != tree_model.getRoot()) {
-
-                        MutableTreeNode parent = (MutableTreeNode) node.getParent();
-
-                        tree_model.removeNodeFromParent(node);
-
-                        while (parent != null && parent.isLeaf()) {
-
-                            if (parent != tree_model.getRoot()) {
-
-                                MutableTreeNode parent_aux = (MutableTreeNode) parent.getParent();
-
-                                tree_model.removeNodeFromParent(parent);
-
-                                parent = parent_aux;
-
-                            } else {
-
-                                parent = null;
-                            }
-                        }
-
-                    } else {
-
-                        MutableTreeNode new_root;
-
-                        try {
-
-                            new_root = (MutableTreeNode) tree_model.getRoot().getClass().newInstance();
-
-                            tree.setModel(new DefaultTreeModel(new_root));
-
-                            tree.setRootVisible(new_root.getChildCount() > 0);
-
-                            tree.setEnabled(true);
-
-                        } catch (InstantiationException | IllegalAccessException ex) {
-                            Logger.getLogger(MiscTools.class.getName()).log(Level.SEVERE, ex.getMessage());
-                        }
-
-                        return true;
-                    }
-                }
-            }
-
-            tree.setRootVisible(((TreeNode) tree_model.getRoot()).getChildCount() > 0);
-            tree.setEnabled(true);
-
-            return true;
-        }
-
-        return false;
-    }
-
     public static boolean isDirEmpty(Path path) {
         if (Files.isDirectory(path)) {
             try (DirectoryStream<Path> directory = Files.newDirectoryStream(path)) {
@@ -1002,189 +464,6 @@ public class MiscTools {
         }
 
         return false;
-    }
-
-    public static boolean deleteAllExceptSelectedTreeItems(JTree tree) {
-
-        TreePath[] paths = tree.getSelectionPaths();
-
-        HashMap<MutableTreeNode, MutableTreeNode> hashmap_old = new HashMap<>();
-
-        DefaultTreeModel tree_model = (DefaultTreeModel) tree.getModel();
-
-        if (paths != null) {
-
-            Class node_class = tree_model.getRoot().getClass();
-
-            Object new_root = null;
-
-            try {
-
-                new_root = node_class.getDeclaredConstructor().newInstance();
-
-                ((DefaultMutableTreeNode) new_root).setUserObject(((DefaultMutableTreeNode) tree_model.getRoot()).getUserObject());
-
-            } catch (InstantiationException | IllegalAccessException ex) {
-                Logger.getLogger(MiscTools.class.getName()).log(Level.SEVERE, ex.getMessage());
-            } catch (NoSuchMethodException | SecurityException | IllegalArgumentException | InvocationTargetException ex) {
-                Logger.getLogger(MiscTools.class.getName()).log(Level.SEVERE, null, ex);
-            }
-
-            for (TreePath path : paths) {
-
-                if ((MutableTreeNode) path.getLastPathComponent() != (MutableTreeNode) tree_model.getRoot()) {
-                    Object parent = new_root;
-
-                    for (Object path_element : path.getPath()) {
-
-                        if ((DefaultMutableTreeNode) path_element != (DefaultMutableTreeNode) tree_model.getRoot()) {
-
-                            if (hashmap_old.get(path_element) == null) {
-
-                                Object node = null;
-
-                                if ((DefaultMutableTreeNode) path_element == (DefaultMutableTreeNode) path.getLastPathComponent()) {
-
-                                    node = path_element;
-
-                                } else {
-
-                                    try {
-
-                                        node = node_class.newInstance();
-
-                                        ((DefaultMutableTreeNode) node).setUserObject(((DefaultMutableTreeNode) path_element).getUserObject());
-
-                                    } catch (InstantiationException | IllegalAccessException ex) {
-                                        Logger.getLogger(MiscTools.class.getName()).log(Level.SEVERE, ex.getMessage());
-                                    }
-                                }
-
-                                if (parent != null) {
-
-                                    ((DefaultMutableTreeNode) parent).add((DefaultMutableTreeNode) node);
-
-                                    if (!((TreeNode) path_element).isLeaf()) {
-
-                                        hashmap_old.put((DefaultMutableTreeNode) path_element, (DefaultMutableTreeNode) node);
-
-                                        parent = node;
-                                    }
-                                }
-
-                            } else {
-
-                                parent = hashmap_old.get(path_element);
-                            }
-                        }
-                    }
-
-                } else {
-
-                    return false;
-                }
-            }
-
-            tree.setModel(new DefaultTreeModel(sortTree((DefaultMutableTreeNode) new_root)));
-
-            tree.setRootVisible(new_root != null ? ((TreeNode) new_root).getChildCount() > 0 : false);
-
-            tree.setEnabled(true);
-
-            return true;
-        }
-
-        return false;
-    }
-
-    /**
-     * Mount a right-click context menu on the JTree used by FolderLinkDialog
-     * and FileGrabberDialog. Replaces the Ctrl+click + "REMOVE THIS" button
-     * workflow: right-click on a node directly to remove it, with multi-
-     * selection still honoured if the user clicked on an already-selected
-     * node (standard Swing/OS convention).
-     *
-     * @param tree the JTree to instrument
-     * @param onChange callback fired after a Remove / Keep-only action so the
-     *                 caller can recalculate folder sizes, regenerate the
-     *                 download/file list, refresh button states, etc. May be
-     *                 null if the caller doesn't need any post-mutation work.
-     */
-    public static void attachTreeContextMenu(final JTree tree, final Runnable onChange) {
-
-        final JPopupMenu menu = new JPopupMenu();
-
-        final JMenuItem remove_item = new JMenuItem(I18n.tr("ui.tree.context.remove"));
-        remove_item.addActionListener(e -> {
-            if (deleteSelectedTreeItems(tree) && onChange != null) {
-                onChange.run();
-            }
-        });
-
-        final JMenuItem keep_only_item = new JMenuItem(I18n.tr("ui.tree.context.keep_only"));
-        keep_only_item.addActionListener(e -> {
-            if (deleteAllExceptSelectedTreeItems(tree) && onChange != null) {
-                onChange.run();
-            }
-        });
-
-        menu.add(remove_item);
-        menu.add(keep_only_item);
-        menu.addSeparator();
-
-        final JMenuItem expand_all_item = new JMenuItem(I18n.tr("ui.tree.context.expand_all"));
-        expand_all_item.addActionListener(e -> {
-            for (int i = 0; i < tree.getRowCount(); i++) {
-                tree.expandRow(i);
-            }
-        });
-
-        final JMenuItem collapse_all_item = new JMenuItem(I18n.tr("ui.tree.context.collapse_all"));
-        collapse_all_item.addActionListener(e -> {
-            for (int i = tree.getRowCount() - 1; i >= 0; i--) {
-                tree.collapseRow(i);
-            }
-        });
-
-        menu.add(expand_all_item);
-        menu.add(collapse_all_item);
-
-        tree.addMouseListener(new java.awt.event.MouseAdapter() {
-
-            @Override
-            public void mousePressed(java.awt.event.MouseEvent e) {
-                maybeShow(e);
-            }
-
-            @Override
-            public void mouseReleased(java.awt.event.MouseEvent e) {
-                maybeShow(e);
-            }
-
-            private void maybeShow(java.awt.event.MouseEvent e) {
-                if (!e.isPopupTrigger() || !tree.isEnabled()) {
-                    return;
-                }
-
-                final TreePath row_path = tree.getPathForLocation(e.getX(), e.getY());
-
-                // If the user right-clicked on a node that isn't currently in
-                // the selection, replace the selection with that node so the
-                // action affects what was actually clicked. If the click landed
-                // on a node that *is* in the selection, leave the selection
-                // alone so multi-select still works (matches every other
-                // OS-native tree widget).
-                if (row_path != null && !tree.isPathSelected(row_path)) {
-                    tree.setSelectionPath(row_path);
-                }
-
-                final boolean has_selection = tree.getSelectionPaths() != null && tree.getSelectionPaths().length > 0;
-                remove_item.setEnabled(has_selection);
-                keep_only_item.setEnabled(has_selection);
-
-                menu.show(tree, e.getX(), e.getY());
-            }
-        });
     }
 
     public static String truncateText(String text, int max_length) {
@@ -1266,29 +545,6 @@ public class MiscTools {
         SECURE_RANDOM.nextBytes(the_array);
 
         return the_array;
-    }
-
-    public static String extractStringFromClipboardContents(Transferable contents) {
-
-        String ret = null;
-
-        if (contents != null) {
-
-            try {
-
-                Object o = contents.getTransferData(DataFlavor.stringFlavor);
-
-                if (o instanceof String) {
-
-                    ret = (String) o;
-                }
-
-            } catch (Exception ex) {
-            }
-        }
-
-        return ret;
-
     }
 
     public static String extractMegaLinksFromString(String data) {
@@ -1661,28 +917,6 @@ public class MiscTools {
         return null;
     }
 
-    public static void openBrowserURL(final String url) {
-        THREAD_POOL.execute(() -> {
-            try {
-                Logger.getLogger(MiscTools.class.getName()).log(Level.INFO, "Trying to open URL in external browser: {0}", url);
-
-                if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
-                    Desktop.getDesktop().browse(new URI(url));
-                    return;
-                }
-                if (System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("nux")) {
-                    Process p = Runtime.getRuntime().exec(new String[]{"xdg-open", url});
-                    p.waitFor();
-                    p.destroy();
-                    return;
-                }
-                Logger.getLogger(MiscTools.class.getName()).log(Level.WARNING, "Unable to open URL: Unsupported platform.", url);
-            } catch (Exception ex) {
-                Logger.getLogger(MiscTools.class.getName()).log(Level.SEVERE, ex.getMessage());
-            }
-        });
-    }
-
     public static byte[] recReverseArray(byte[] arr, int start, int end) {
 
         byte temp;
@@ -1727,9 +961,12 @@ public class MiscTools {
         argv.add("-cp");
         argv.add(ManagementFactory.getRuntimeMXBean().getClassPath());
 
-        argv.add(MainPanel.class.getName());
-        argv.add("native");
-        argv.add("1");
+        // shortcut: sun.java.command is space-joined, so arguments containing spaces are not preserved; pass argv in from main() if that ever matters
+        String[] command = System.getProperty("sun.java.command", "").trim().split("\\s+");
+        if (command[0].endsWith(".jar")) {
+            argv.add("-jar");
+        }
+        argv.addAll(Arrays.asList(command));
 
         try {
             new ProcessBuilder(argv).inheritIO().start();
@@ -1813,13 +1050,10 @@ public class MiscTools {
     }
 
     /**
-     * Console equivalent of GetMasterPasswordDialog.ok_buttonActionPerformed:
-     * prompts for the master password via the app's UserPrompter and
-     * validates it against the stored PBKDF2/SHA-1 hash using the exact same
-     * algorithm as the dialog (see GetMasterPasswordDialog), since both must
-     * accept precisely the password the user originally set. Retries a few
+     * Prompts for the master password via the app's UserPrompter and
+     * validates it against the stored PBKDF2/SHA-1 hash. Retries a few
      * times on a wrong password; returns null if the user gives up or no
-     * console input is available.
+     * input is available.
      */
     static byte[] promptMasterPasswordHeadless(MainPanel main_panel) {
 
@@ -1840,7 +1074,7 @@ public class MiscTools {
 
                 String current_hash = main_panel.getMaster_pass_hash();
 
-                // Constant-time compare, matching GetMasterPasswordDialog.
+                // Constant-time compare.
                 if (java.security.MessageDigest.isEqual(
                         pass_hash.getBytes(java.nio.charset.StandardCharsets.UTF_8),
                         current_hash == null ? new byte[0] : current_hash.getBytes(java.nio.charset.StandardCharsets.UTF_8))) {
@@ -1861,9 +1095,7 @@ public class MiscTools {
         return null;
     }
 
-    public static MegaAPI checkMegaAccountLoginAndShowMasterPassDialog(MainPanel main_panel, Container container, String email) throws Exception {
-
-        boolean remember_master_pass = true;
+    public static MegaAPI checkMegaAccountLoginAndShowMasterPassDialog(MainPanel main_panel, String email) throws Exception {
 
         HashMap<String, Object> account_info = (HashMap) main_panel.getMega_accounts().get(email);
 
@@ -1880,51 +1112,19 @@ public class MiscTools {
 
                     if (main_panel.getMaster_pass() == null) {
 
-                        if (MainPanel.isCliMode()) {
+                        byte[] entered_pass = promptMasterPasswordHeadless(main_panel);
 
-                            byte[] entered_pass = promptMasterPasswordHeadless(main_panel);
+                        if (entered_pass != null) {
 
-                            if (entered_pass != null) {
+                            main_panel.setMaster_pass(entered_pass);
 
-                                main_panel.setMaster_pass(entered_pass);
+                            password_aes = Bin2BASE64(CryptTools.aes_cbc_decrypt_at_rest(BASE642Bin((String) account_info.get("password_aes")), main_panel.getMaster_pass()));
 
-                                password_aes = Bin2BASE64(CryptTools.aes_cbc_decrypt_at_rest(BASE642Bin((String) account_info.get("password_aes")), main_panel.getMaster_pass()));
-
-                                user_hash = Bin2BASE64(CryptTools.aes_cbc_decrypt_at_rest(BASE642Bin((String) account_info.get("user_hash")), main_panel.getMaster_pass()));
-
-                            } else {
-
-                                return null;
-                            }
+                            user_hash = Bin2BASE64(CryptTools.aes_cbc_decrypt_at_rest(BASE642Bin((String) account_info.get("user_hash")), main_panel.getMaster_pass()));
 
                         } else {
 
-                            GetMasterPasswordDialog pdialog = new GetMasterPasswordDialog((Frame) container.getParent(), true, main_panel.getMaster_pass_hash(), main_panel.getMaster_pass_salt(), main_panel);
-
-                            pdialog.setLocationRelativeTo(container);
-
-                            pdialog.setVisible(true);
-
-                            if (pdialog.isPass_ok()) {
-
-                                main_panel.setMaster_pass(pdialog.getPass());
-
-                                pdialog.deletePass();
-
-                                remember_master_pass = pdialog.getRemember_checkbox().isSelected();
-
-                                pdialog.dispose();
-
-                                password_aes = Bin2BASE64(CryptTools.aes_cbc_decrypt_at_rest(BASE642Bin((String) account_info.get("password_aes")), main_panel.getMaster_pass()));
-
-                                user_hash = Bin2BASE64(CryptTools.aes_cbc_decrypt_at_rest(BASE642Bin((String) account_info.get("user_hash")), main_panel.getMaster_pass()));
-
-                            } else {
-
-                                pdialog.dispose();
-
-                                return null;
-                            }
+                            return null;
                         }
 
                     } else {
@@ -1994,27 +1194,10 @@ public class MiscTools {
 
                         if (ma.check2FA(email)) {
 
-                            if (MainPanel.isCliMode()) {
+                            pincode = main_panel.getUserPrompter().prompt2FACode(email);
 
-                                pincode = main_panel.getUserPrompter().prompt2FACode(email);
-
-                                if (pincode == null || pincode.isEmpty()) {
-                                    throw new MegaAPIException(-26);
-                                }
-
-                            } else {
-
-                                Get2FACode dialog = new Get2FACode((Frame) container.getParent(), true, email, main_panel);
-
-                                dialog.setLocationRelativeTo(container);
-
-                                dialog.setVisible(true);
-
-                                if (dialog.isCode_ok()) {
-                                    pincode = dialog.getPin_code();
-                                } else {
-                                    throw new MegaAPIException(-26);
-                                }
+                            if (pincode == null || pincode.isEmpty()) {
+                                throw new MegaAPIException(-26);
                             }
                         }
 
@@ -2042,22 +1225,13 @@ public class MiscTools {
 
                     if (exception.getCode() == -6) {
                         String msg = LabelTranslatorSingleton.getInstance().translate("You've tried to login too many times. Wait an hour.");
-                        if (MainPanel.isCliMode()) {
-                            main_panel.getUserPrompter().showError(I18n.tr("ui.error_title"), msg);
-                        } else {
-                            JOptionPane.showMessageDialog(container.getParent(), msg, I18n.tr("ui.error_title"), JOptionPane.ERROR_MESSAGE);
-                        }
+                        main_panel.getUserPrompter().showError(I18n.tr("ui.error_title"), msg);
                     }
 
                     throw exception;
                 }
 
             }
-        }
-
-        if (!remember_master_pass) {
-
-            main_panel.setMaster_pass(null);
         }
 
         return ma;

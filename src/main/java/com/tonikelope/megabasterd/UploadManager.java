@@ -21,7 +21,7 @@ public class UploadManager extends TransferenceManager {
 
     public UploadManager(MainPanel main_panel) {
 
-        super(main_panel, main_panel.getMax_ul(), main_panel.getView().getStatus_up_label(), main_panel.getView().getjPanel_scroll_up(), main_panel.getView().getClose_all_finished_up_button(), main_panel.getView().getPause_all_up_button(), main_panel.getView().getClean_all_up_menu());
+        super(main_panel, main_panel.getMax_ul());
 
         _log_file_lock = new Object();
     }
@@ -45,9 +45,6 @@ public class UploadManager extends TransferenceManager {
 
     @Override
     public void provision(final Transference upload) {
-        MiscTools.GUIRun(() -> {
-            getScroll_panel().add(((Upload) upload).getView());
-        });
 
         try {
             ((Upload) upload).provisionIt();
@@ -79,11 +76,8 @@ public class UploadManager extends TransferenceManager {
     public void remove(Transference[] uploads) {
 
         ArrayList<String[]> delete_up = new ArrayList<>();
-        final java.util.ArrayList<UploadView> views_to_remove = new java.util.ArrayList<>();
 
         for (final Transference u : uploads) {
-
-            views_to_remove.add(((Upload) u).getView());
 
             getTransference_waitstart_queue().remove(u);
 
@@ -99,14 +93,6 @@ public class UploadManager extends TransferenceManager {
             delete_up.add(new String[]{u.getFile_name(), ((Upload) u).getMa().getFull_email()});
         }
 
-        MiscTools.GUIRun(() -> {
-            for (UploadView v : views_to_remove) {
-                getScroll_panel().remove(v);
-            }
-            getScroll_panel().revalidate();
-            getScroll_panel().repaint();
-        });
-
         try {
             DBTools.deleteUploads(delete_up.toArray(new String[delete_up.size()][]));
         } catch (SQLException ex) {
@@ -116,9 +102,8 @@ public class UploadManager extends TransferenceManager {
         secureNotify();
     }
 
-    public int copyAllLinksToClipboard() {
-
-        int total = 0;
+    /** Every queued/running/finished upload with its MEGA links. */
+    public String getAllLinksText() {
 
         ArrayList<String> links = new ArrayList<>();
 
@@ -137,8 +122,6 @@ public class UploadManager extends TransferenceManager {
 
         out += String.join("\r\n", links);
 
-        total += links.size();
-
         links.clear();
 
         for (Transference t : _transference_running_list) {
@@ -148,8 +131,6 @@ public class UploadManager extends TransferenceManager {
         }
 
         out += String.join("\r\n", links);
-
-        total += links.size();
 
         links.clear();
 
@@ -161,12 +142,54 @@ public class UploadManager extends TransferenceManager {
 
         out += String.join("\r\n", links);
 
-        total += links.size();
-
-        MiscTools.copyTextToClipboard(out);
-
-        return total;
+        return out;
 
     }
 
+    /**
+     * Creates a new folder on MEGA and queues one upload per local file into
+     * it (flat: local sub-directories are not recreated). Shared by the CLI
+     * and the GUI.
+     *
+     * @param folder_name name of the MEGA folder; null/empty = first file's
+     * name plus a random suffix
+     * @param queued receives the created uploads, in order
+     * @return the public folder link when {@code public_link}, else null
+     */
+    @SuppressWarnings("unchecked")
+    public String queueFiles(MegaAPI ma, java.util.List<java.io.File> files, String folder_name, boolean public_link, boolean priority, java.util.List<Upload> queued) throws Exception {
+
+        byte[] parent_key = ma.genFolderKey();
+        byte[] share_key = ma.genShareKey();
+
+        String root_name = (folder_name != null && !folder_name.isEmpty())
+                ? folder_name
+                : files.get(0).getName() + "_" + MiscTools.genID(10);
+
+        java.util.HashMap<String, Object> res = ma.createDir(root_name, ma.getRoot_id(), parent_key, MiscTools.i32a2bin(ma.getMaster_key()));
+
+        if (res == null) {
+            int code = ma.getLastApiErrorCode();
+            throw new java.io.IOException("Could not create the upload folder on MEGA" + (code != 0 ? " (" + MegaErrorMessages.getTitle(code, MegaErrorMessages.Source.ACCOUNT) + ")" : ""));
+        }
+
+        String parent_node = (String) ((java.util.Map) ((java.util.List) res.get("f")).get(0)).get("h");
+
+        String folder_link = null;
+
+        if (public_link) {
+            ma.shareFolder(parent_node, parent_key, share_key);
+            folder_link = ma.getPublicFolderLink(parent_node, share_key);
+        }
+
+        for (java.io.File f : files) {
+            Upload upload = new Upload(getMain_panel(), ma, f.getAbsolutePath(), parent_node, null, null, parent_node, share_key, folder_link, priority);
+            queued.add(upload);
+            getTransference_provision_queue().add(upload);
+        }
+
+        secureNotify();
+
+        return folder_link;
+    }
 }

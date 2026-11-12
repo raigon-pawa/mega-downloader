@@ -13,8 +13,7 @@ import java.util.List;
  * Polls a batch of {@link Transference} (Download/Upload) instances on the
  * calling thread and prints one throttled progress line per second until
  * every one of them lands in the manager's finished queue. Deliberately
- * simple (no GUI progress bar / SpeedMeter wiring) -- CLI output is a status
- * line, not a widget.
+ * simple (no SpeedMeter wiring) -- CLI output is a status line.
  *
  * Completion is "present in {@code finished_queue}", NOT
  * {@link Transference#isStopped()}: a Download/Upload that fails during

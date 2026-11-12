@@ -34,8 +34,8 @@ public class FolderListCommand implements Callable<Integer> {
             return 1;
         }
 
-        // A leading "@subfolder_id" after the folder id (used by the GUI to
-        // deep-link into a subfolder) is not meaningful here -- strip it so
+        // A leading "@subfolder_id" after the folder id (a deep-link into a
+        // subfolder) is not meaningful here -- strip it so
         // getFolderNodes gets a clean handle, and just list the whole tree.
         if (folder_id.contains("@")) {
             folder_id = folder_id.split("@")[0];
@@ -44,9 +44,7 @@ public class FolderListCommand implements Callable<Integer> {
         try {
             MegaAPI ma = new MegaAPI();
 
-            // null JProgressBar: getFolderNodes null-checks it at every use,
-            // so this is safe to call headless -- no Swing widget involved.
-            Map<String, Object> folder_nodes = ma.getFolderNodes(folder_id, folder_key, null, true);
+            Map<String, Object> folder_nodes = ma.getFolderNodes(folder_id, folder_key, true);
 
             if (folder_nodes == null || folder_nodes.isEmpty()) {
                 System.out.println("(empty or inaccessible folder)");

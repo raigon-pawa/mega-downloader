@@ -38,7 +38,7 @@ public class DownloadCommand implements Callable<Integer> {
         MegaAPI ma;
 
         if (account != null) {
-            ma = MiscTools.checkMegaAccountLoginAndShowMasterPassDialog(main_panel, main_panel.getView(), account);
+            ma = MiscTools.checkMegaAccountLoginAndShowMasterPassDialog(main_panel, account);
             if (ma == null) {
                 System.err.println("Could not log in to MEGA account " + account + " (wrong master password, cancelled, or account not found -- see 'accounts list').");
                 main_panel.shutdownForCli(1);
@@ -53,7 +53,8 @@ public class DownloadCommand implements Callable<Integer> {
         List<Download> batch = new ArrayList<>();
 
         for (String link : links) {
-            Download download = new Download(main_panel, ma, link, download_path, null, null, null, null, null,
+            // The engine only understands the legacy #!ID!KEY form.
+            Download download = new Download(main_panel, ma, MiscTools.newMegaLinks2Legacy(link).trim(), download_path, null, null, null, null, null,
                     main_panel.isUse_slots_down(), false, null, priority);
             batch.add(download);
             main_panel.getDownload_manager().getTransference_provision_queue().add(download);

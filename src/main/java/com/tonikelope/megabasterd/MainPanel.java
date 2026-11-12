@@ -7,19 +7,6 @@ package com.tonikelope.megabasterd;
 import static com.tonikelope.megabasterd.DBTools.*;
 import static com.tonikelope.megabasterd.MiscTools.*;
 import static com.tonikelope.megabasterd.Transference.*;
-import java.awt.AWTException;
-import java.awt.Color;
-import static java.awt.EventQueue.invokeLater;
-import java.awt.Font;
-import static java.awt.Frame.NORMAL;
-import static java.awt.SystemTray.getSystemTray;
-import static java.awt.Toolkit.getDefaultToolkit;
-import java.awt.TrayIcon;
-import java.awt.event.ActionEvent;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
-import java.awt.event.WindowEvent;
-import static java.awt.event.WindowEvent.WINDOW_CLOSING;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -44,16 +31,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.logging.Level;
 import static java.util.logging.Level.SEVERE;
 import java.util.logging.Logger;
-import javax.swing.JLabel;
-import javax.swing.JMenuItem;
-import javax.swing.JOptionPane;
-import static javax.swing.JOptionPane.QUESTION_MESSAGE;
-import static javax.swing.JOptionPane.WARNING_MESSAGE;
-import static javax.swing.JOptionPane.YES_NO_CANCEL_OPTION;
-import static javax.swing.JOptionPane.showOptionDialog;
-import javax.swing.JPopupMenu;
-import javax.swing.SwingUtilities;
-import javax.swing.UIManager;
 
 /**
  *
@@ -72,10 +49,9 @@ public final class MainPanel {
     public static final String DEFAULT_LANGUAGE = "EN";
     public static final boolean DEFAULT_SMART_PROXY = false;
     public static final double FORCE_GARBAGE_COLLECTION_MAX_MEMORY_PERCENT = 0.7;
-    public static Font GUI_FONT = new JLabel().getFont();
-    public static final float ZOOM_FACTOR = 0.8f;
     public static final String DEFAULT_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:61.0) Gecko/20100101 Firefox/61.0";
     public static final String ICON_FILE = "/images/pica_roja_big.png";
+    public static final String MEGABASTERD_URL = "https://github.com/raigon-pawa/mega-downloader/releases/latest";
     /**
      * Max worker threads in the global pool. The pool used to be
      * {@code newCachedThreadPool()} (unbounded) which under heavy bursts
@@ -180,15 +156,11 @@ public final class MainPanel {
     private static volatile String _run_command_dl_finish_path;
     private static volatile boolean _run_command_ul_finish;
     private static volatile String _run_command_ul_finish_path;
-    private static String _font;
     // volatile: see the proxy-config block above -- read by already-running
-    // worker threads, written on the EDT at runtime-enable. (#778)
+    // worker threads, written at runtime-enable. (#778)
     // Type is VpnRotationManager (ExpressVPN-based), not the old
-    // SmartMegaProxyManager (open-proxy pool) -- field/getter/setter names
-    // kept unchanged so the ~190 GUI-only references across
-    // SettingsDialog/QuotaRecoveryPanel/MainPanelView (all unreachable dead
-    // code now, kept only as inert plumbing per the plan doc) still
-    // compile unmodified. (#Phase4)
+    // SmartMegaProxyManager (open-proxy pool); the "proxy" field/getter/setter
+    // names are historical. (#Phase4)
     private static volatile VpnRotationManager _proxy_manager;
     private static volatile String _language;
     private static String _new_version;
@@ -276,43 +248,10 @@ public final class MainPanel {
     }
 
     private static final Logger LOG = Logger.getLogger(MainPanel.class.getName());
-    private static volatile boolean CHECK_RUNNING = true;
-
-    public static void main(String args[]) {
-
-        if (args.length > 0) {
-
-            if (args.length > 1) {
-                try {
-                    Logger.getLogger(MainPanel.class.getName()).log(Level.INFO, "{0} Waiting {1} seconds before start...", new Object[]{Thread.currentThread().getName(), args[1]});
-
-                    if (Long.parseLong(args[1]) >= 0) {
-                        Thread.sleep(Long.parseLong(args[1]) * 1000);
-                    } else {
-                        CHECK_RUNNING = false;
-                    }
-                } catch (InterruptedException ex) {
-                    Logger.getLogger(MainPanel.class.getName()).log(Level.SEVERE, ex.getMessage());
-                }
-            }
-
-        }
-
-        bootstrapDbAndSettings();
-
-        final MainPanel main_panel = new MainPanel();
-
-        invokeLater(() -> {
-            main_panel.getView().setVisible(true);
-        });
-    }
-
     /**
      * Portable-dir detection, DB schema setup, and one-time settings
-     * migrations -- everything main() needs before constructing MainPanel,
-     * none of it GUI-specific. Extracted so CliMain can share it verbatim
-     * instead of re-deriving the same startup sequence (and risking drift
-     * from these migrations over time).
+     * migrations -- everything a front-end (CLI or GUI) must run before
+     * constructing MainPanel.
      */
     public static void bootstrapDbAndSettings() {
 
@@ -329,8 +268,6 @@ public final class MainPanel {
         } catch (SQLException ex) {
             Logger.getLogger(MainPanel.class.getName()).log(SEVERE, null, ex);
         }
-
-        setNimbusLookAndFeel("yes".equals(DBTools.selectSettingValue("dark_mode")));
 
         if ("yes".equals(DBTools.selectSettingValue("upload_log"))) {
             MiscTools.createUploadLogDir();
@@ -392,10 +329,6 @@ public final class MainPanel {
 
     public static String getRun_command_ul_finish_path() {
         return _run_command_ul_finish_path;
-    }
-
-    public static String getFont() {
-        return _font;
     }
 
     public static String getNew_version() {
@@ -468,7 +401,6 @@ public final class MainPanel {
         return _proxy_manager;
     }
 
-    private volatile MainPanelView _view;
     private final SpeedMeter _global_dl_speed, _global_up_speed;
     private final DownloadManager _download_manager;
     private final UploadManager _upload_manager;
@@ -483,8 +415,6 @@ public final class MainPanel {
     private HashMap<String, Object> _mega_accounts;
     private HashMap<String, Object> _elc_accounts;
     private final HashMap<String, MegaAPI> _mega_active_accounts;
-    private TrayIcon _trayicon;
-    private final ClipboardSpy _clipboardspy;
     private KissVideoStreamServer _streamserver;
     private byte[] _master_pass;
     private String _master_pass_hash;
@@ -493,43 +423,19 @@ public final class MainPanel {
     private MegaProxyServer _mega_proxy_server;
     private int _megacrypter_reverse_port;
     private boolean _megacrypter_reverse;
-    private float _zoom_factor;
     private volatile boolean _exit;
-    private final UserPrompter _user_prompter;
 
-    /**
-     * Self-reference so code with no MainPanel passed in (e.g.
-     * MegaAPI.GENERATE_N_LINKS, which historically reached for
-     * MainPanelView.getINSTANCE().getMain_panel()) can get at the running
-     * instance without depending on the GUI singleton, which doesn't exist
-     * in headless/CLI mode. Exactly one MainPanel is ever constructed per
-     * process (GUI or CLI).
-     */
+    // Lets code with no MainPanel passed in (e.g. MegaAPI.GENERATE_N_LINKS)
+    // reach the running instance. Exactly one is constructed per process.
     private static volatile MainPanel INSTANCE;
 
-    /**
-     * Set by CliMain.main() before anything else runs. Deliberately NOT the
-     * same thing as {@code GraphicsEnvironment.isHeadless()}: a real JFrame/
-     * JDialog cannot even be *constructed* under true AWT headless mode
-     * (Window's constructor throws HeadlessException immediately, not just
-     * on setVisible(true)) -- confirmed by testing -- but MainPanelView and
-     * the *Dialog classes are kept as inert never-shown objects (see the
-     * plan doc's Phase 3 revision), which requires AWT to NOT be headless
-     * (a virtual framebuffer / Xvfb provides that in Docker). So "should
-     * this prompt go to the console instead of a Swing dialog" has to be
-     * its own explicit flag, independent of whatever AWT thinks the display
-     * situation is -- otherwise a dialog could construct fine (because
-     * Xvfb satisfies AWT) and then block forever waiting for a click nobody
-     * watching the virtual display can ever make.
-     */
-    private static volatile boolean CLI_MODE = false;
+    // Every blocking question/error the engine has for the user goes through
+    // this. Console by default; a front-end swaps it in BEFORE constructing
+    // MainPanel, because the constructor may prompt while resuming transfers.
+    private static volatile UserPrompter USER_PROMPTER = new ConsoleUserPrompter();
 
-    public static void setCliMode(boolean cli_mode) {
-        CLI_MODE = cli_mode;
-    }
-
-    public static boolean isCliMode() {
-        return CLI_MODE;
+    public static void setUserPrompter(UserPrompter prompter) {
+        USER_PROMPTER = prompter;
     }
 
     public static MainPanel getInstance() {
@@ -537,14 +443,12 @@ public final class MainPanel {
     }
 
     public UserPrompter getUserPrompter() {
-        return _user_prompter;
+        return USER_PROMPTER;
     }
 
     public MainPanel() {
 
         INSTANCE = this;
-
-        _user_prompter = new ConsoleUserPrompter();
 
         _new_version = null;
 
@@ -581,8 +485,8 @@ public final class MainPanel {
 
         _resume_downloads = false;
 
-        // Capture java.util.logging records into an in-memory queue so the
-        // "DEBUG LOG" tab built below (after the view is up) can show them.
+        // Capture java.util.logging records into an in-memory queue so a
+        // front-end log view can show them (DebugLogBus.bind).
         // Done BEFORE loadUserSettings so early init records are not lost.
         // We do NOT touch System.out / System.err and we do NOT raise the
         // root level -- the existing filter still applies. (#751 / D)
@@ -634,145 +538,20 @@ public final class MainPanel {
 
         LOG.log(Level.INFO, "Runtime: {0} {1} {2} {3}", new Object[]{System.getProperty("os.name"), System.getProperty("java.vm.name"), System.getProperty("java.version"), System.getProperty("java.home")});
 
-        UIManager.put("OptionPane.messageFont", GUI_FONT.deriveFont(15f * getZoom_factor()));
-
-        UIManager.put("OptionPane.buttonFont", GUI_FONT.deriveFont(15f * getZoom_factor()));
-
-        UIManager.put("OptionPane.cancelButtonText", LabelTranslatorSingleton.getInstance().translate("Cancel"));
-
-        UIManager.put("OptionPane.yesButtonText", LabelTranslatorSingleton.getInstance().translate("Yes"));
-
-        UIManager.put("OptionPane.okButtonText", LabelTranslatorSingleton.getInstance().translate("OK"));
-
-        _view = new MainPanelView(this);
-
-        // (Removed in #757) The Edit menu used to have a "Quota recovery &
-        // SmartProxy (509)" shortcut that opened a standalone dialog
-        // (QuotaRecoverySettingsDialog). Those settings now live as the
-        // "Quota / 509" tab in the main Settings dialog, reached via the
-        // regular Edit > Settings menu. The shortcut was removed -- besides
-        // being redundant, it bypassed the account-deletion cleanup that
-        // MainPanelView.settings_menuActionPerformed runs after the dialog
-        // closes, which would have left _main_panel.getMega_accounts() out
-        // of sync if the user touched the Accounts tab via the shortcut.
-
-        // "DEBUG LOG" tab. Everything inside GUIRunAndWait so it runs on the
-        // EDT; addTab on a JTabbedPane after the view is realised has to be
-        // EDT-safe. DebugLogBus.installJULHandler() ran above, so the queue
-        // has been buffering since startup -- bind() will start a Timer that
-        // drains the queue into the textarea every 300 ms, batched. (#751 / D)
-        MiscTools.GUIRunAndWait(() -> {
-            try {
-                javax.swing.JTextArea debug_area = new javax.swing.JTextArea();
-                debug_area.setEditable(false);
-                debug_area.setLineWrap(false);
-                debug_area.setBackground(new java.awt.Color(30, 30, 30));
-                debug_area.setForeground(new java.awt.Color(220, 220, 220));
-                debug_area.setCaretColor(new java.awt.Color(220, 220, 220));
-                debug_area.setSelectionColor(new java.awt.Color(70, 90, 130));
-                debug_area.setFont(new java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 12));
-
-                javax.swing.JScrollPane debug_scroll = new javax.swing.JScrollPane(debug_area);
-                debug_scroll.getViewport().setBackground(new java.awt.Color(30, 30, 30));
-
-                javax.swing.JButton clear_btn = new javax.swing.JButton(I18n.tr("ui.debuglog.clear_button"));
-                clear_btn.setToolTipText(I18n.tr("ui.tooltip.clear_debug_log"));
-                clear_btn.addActionListener((evt) -> {
-                    int ans = javax.swing.JOptionPane.showConfirmDialog(_view,
-                            I18n.tr("ui.confirm.clear_debug_log.message"),
-                            I18n.tr("ui.confirm.clear_debug_log.title"), javax.swing.JOptionPane.YES_NO_OPTION,
-                            javax.swing.JOptionPane.WARNING_MESSAGE);
-                    if (ans == javax.swing.JOptionPane.YES_OPTION) {
-                        debug_area.setText("");
-                    }
-                });
-
-                javax.swing.JButton copy_btn = new javax.swing.JButton(I18n.tr("ui.debuglog.copy_button"));
-                copy_btn.setToolTipText(I18n.tr("ui.tooltip.copy_debug_log"));
-                copy_btn.addActionListener((evt) -> {
-                    try {
-                        java.awt.Toolkit.getDefaultToolkit().getSystemClipboard()
-                                .setContents(new java.awt.datatransfer.StringSelection(debug_area.getText()), null);
-                    } catch (Exception ignore) {
-                    }
-                });
-
-                javax.swing.JButton save_btn = new javax.swing.JButton(I18n.tr("ui.debuglog.save_button"));
-                save_btn.setToolTipText(I18n.tr("ui.tooltip.save_debug_log"));
-                save_btn.addActionListener((evt) -> {
-                    javax.swing.JFileChooser chooser = new javax.swing.JFileChooser();
-                    chooser.setDialogTitle(I18n.tr("ui.debuglog.save_dialog_title"));
-                    String stamp = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss").format(new java.util.Date());
-                    chooser.setSelectedFile(new java.io.File("megabasterd_debug_" + stamp + ".log"));
-                    if (chooser.showSaveDialog(_view) == javax.swing.JFileChooser.APPROVE_OPTION) {
-                        java.io.File target = chooser.getSelectedFile();
-                        try (java.io.OutputStreamWriter w = new java.io.OutputStreamWriter(
-                                new java.io.FileOutputStream(target), java.nio.charset.StandardCharsets.UTF_8)) {
-                            w.write(debug_area.getText());
-                        } catch (Exception ex) {
-                            javax.swing.JOptionPane.showMessageDialog(_view,
-                                    I18n.tr("ui.err.save_log.message", ex.getMessage()),
-                                    I18n.tr("ui.err.save_log.title"), javax.swing.JOptionPane.ERROR_MESSAGE);
-                        }
-                    }
-                });
-
-                javax.swing.JPanel toolbar = new javax.swing.JPanel(
-                        new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 4));
-                toolbar.add(save_btn);
-                toolbar.add(copy_btn);
-                toolbar.add(clear_btn);
-
-                javax.swing.JPanel debug_panel = new javax.swing.JPanel(new java.awt.BorderLayout());
-                debug_panel.add(toolbar, java.awt.BorderLayout.NORTH);
-                debug_panel.add(debug_scroll, java.awt.BorderLayout.CENTER);
-
-                _view.getjTabbedPane1().addTab(I18n.tr("ui.tab.debug_log"),
-                        new javax.swing.ImageIcon(getClass().getResource("/images/icons8-services-30.png")),
-                        debug_panel);
-
-                // Deliberately NOT calling MiscTools.updateFonts on the
-                // textarea: the recursive font derive would replace the
-                // monospaced 12pt with a proportional family scaled by
-                // zoom_factor, which makes stack traces unreadable. The
-                // toolbar buttons use the platform default which is good
-                // enough.
-
-                DebugLogBus.bind(debug_area);
-            } catch (Exception ex) {
-                Logger.getLogger(MainPanel.class.getName()).log(Level.WARNING,
-                        "Could not wire DEBUG LOG tab: {0}", ex.getMessage());
-            }
-        });
-
-        if (CHECK_RUNNING && checkAppIsRunning()) {
+        if (checkAppIsRunning()) {
 
             System.exit(0);
-        }
-
-        try {
-            trayIcon();
-        } catch (AWTException ex) {
-            Logger.getLogger(MainPanel.class.getName()).log(Level.SEVERE, ex.getMessage());
         }
 
         THREAD_POOL.execute((_download_manager = new DownloadManager(this)));
 
         THREAD_POOL.execute((_upload_manager = new UploadManager(this)));
 
-        THREAD_POOL.execute((_global_dl_speed = new SpeedMeter(_download_manager, getView().getGlobal_speed_down_label(), getView().getDown_remtime_label())));
+        THREAD_POOL.execute((_global_dl_speed = new SpeedMeter(_download_manager)));
 
-        THREAD_POOL.execute((_global_up_speed = new SpeedMeter(_upload_manager, getView().getGlobal_speed_up_label(), getView().getUp_remtime_label())));
+        THREAD_POOL.execute((_global_up_speed = new SpeedMeter(_upload_manager)));
 
         THREAD_POOL.execute((_stream_supervisor = new StreamThrottlerSupervisor(_limit_download_speed ? _max_dl_speed * 1024 : 0, _limit_upload_speed ? _max_up_speed * 1024 : 0, THROTTLE_SLICE_SIZE)));
-
-        // ClipboardSpy needs a real system clipboard (Toolkit.getSystemClipboard()),
-        // which throws HeadlessException under -Djava.awt.headless=true (CLI/Docker).
-        if (!MainPanel.isCliMode()) {
-            THREAD_POOL.execute((_clipboardspy = new ClipboardSpy()));
-        } else {
-            _clipboardspy = null;
-        }
 
         try {
             _streamserver = new KissVideoStreamServer(this);
@@ -784,16 +563,11 @@ public final class MainPanel {
         _check_old_version();
 
         THREAD_POOL.execute(() -> {
-            _new_version = checkNewVersion(AboutDialog.MEGABASTERD_URL);
+            _new_version = checkNewVersion(MEGABASTERD_URL);
 
             if (_new_version != null) {
 
-                String msg = LabelTranslatorSingleton.getInstance().translate("mega-downloader NEW VERSION is available! -> ") + _new_version;
-                if (MainPanel.isCliMode()) {
-                    Logger.getLogger(MainPanel.class.getName()).log(Level.INFO, msg);
-                } else {
-                    JOptionPane.showMessageDialog(getView(), msg);
-                }
+                Logger.getLogger(MainPanel.class.getName()).log(Level.INFO, LabelTranslatorSingleton.getInstance().translate("mega-downloader NEW VERSION is available! -> ") + _new_version);
             }
         });
 
@@ -816,17 +590,7 @@ public final class MainPanel {
                 _proxy_manager = new VpnRotationManager(tthis);
             });
 
-        } else {
-
-            getView().updateSmartProxyStatus("SmartProxy: OFF");
-
         }
-
-        MiscTools.GUIRun(() -> {
-            getView().getGlobal_speed_down_label().setForeground(_limit_download_speed ? new Color(255, 0, 0) : new Color(0, 128, 255));
-
-            getView().getGlobal_speed_up_label().setForeground(_limit_upload_speed ? new Color(255, 0, 0) : new Color(0, 128, 255));
-        });
 
         // Auto-GC hint cooldown for the memory monitor below. Wakes the JVM
         // to reclaim heap when usage crosses
@@ -834,36 +598,12 @@ public final class MainPanel {
         // once per AUTO_GC_COOLDOWN_MS, so we don't pin a core stop-the-world
         // GCing every 2 s during heavy chunk decryption. (#773)
         final long AUTO_GC_COOLDOWN_MS = 60_000L;
-        // Make the RAM label a manual "release unused JVM RAM" trigger -- the
-        // best the JVM exposes is System.gc() (a hint, not a directive), but
-        // on G1/ZGC it does prompt heap shrink + return-to-OS. (#773)
-        MiscTools.GUIRun(() -> {
-            JLabel ml = _view.getMemory_status();
-            ml.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
-            ml.setToolTipText(I18n.tr("ui.statusbar.jvm_ram.tooltip"));
-            ml.addMouseListener(new MouseAdapter() {
-                @Override
-                public void mouseClicked(MouseEvent e) {
-                    System.gc();
-                }
-            });
-        });
-
         THREAD_POOL.execute(() -> {
             Runtime instance = Runtime.getRuntime();
-            String last_text = null;
             long last_auto_gc_ms = 0L;
             while (!_exit) {
                 long used_memory = instance.totalMemory() - instance.freeMemory();
                 long max_memory = instance.maxMemory();
-                String text = I18n.tr("ui.statusbar.jvm_ram", MiscTools.formatBytes(used_memory), MiscTools.formatBytes(max_memory));
-                // Skip setText if the rendered string is unchanged -- the EDT
-                // doesn't need a repaint event for "same value".
-                if (!text.equals(last_text)) {
-                    last_text = text;
-                    final String t = text;
-                    MiscTools.GUIRun(() -> _view.getMemory_status().setText(t));
-                }
                 // (#773) Hint the JVM to GC when usage crosses the threshold.
                 // System.gc() is advisory but the default G1 collector does
                 // honour it and will, after a couple of cycles, return free
@@ -923,10 +663,6 @@ public final class MainPanel {
         this._exit = _exit;
     }
 
-    public float getZoom_factor() {
-        return _zoom_factor;
-    }
-
     public MegaProxyServer getMega_proxy_server() {
         return _mega_proxy_server;
     }
@@ -963,10 +699,6 @@ public final class MainPanel {
         return _elc_accounts;
     }
 
-    public TrayIcon getTrayicon() {
-        return _trayicon;
-    }
-
     public String getMaster_pass_hash() {
         return _master_pass_hash;
     }
@@ -998,19 +730,6 @@ public final class MainPanel {
 
             System.arraycopy(pass, 0, _master_pass, 0, pass.length);
         }
-    }
-
-    public MainPanelView getView() {
-
-        while (_view == null) {
-            try {
-                Thread.sleep(250);
-            } catch (InterruptedException ex) {
-                Logger.getLogger(MainPanel.class.getName()).log(Level.SEVERE, ex.getMessage());
-            }
-        }
-
-        return _view;
     }
 
     public SpeedMeter getGlobal_dl_speed() {
@@ -1065,14 +784,6 @@ public final class MainPanel {
         return _mega_active_accounts;
     }
 
-    public TrayIcon getIcon() {
-        return _trayicon;
-    }
-
-    public ClipboardSpy getClipboardspy() {
-        return _clipboardspy;
-    }
-
     public KissVideoStreamServer getStreamserver() {
         return _streamserver;
     }
@@ -1101,6 +812,45 @@ public final class MainPanel {
         return _auto_download_folders;
     }
 
+    /**
+     * Re-reads the settings from the DB and pushes the ones that can change
+     * at runtime (speed limits, simultaneous transfers, VPN) into the
+     * running engine. Call after writing settings while transfers may be
+     * active.
+     */
+    public void applyUserSettings() {
+
+        loadUserSettings();
+
+        _stream_supervisor.setMaxBytesPerSecInput(_limit_download_speed ? _max_dl_speed * 1024 : 0);
+        _stream_supervisor.setMaxBytesPerSecOutput(_limit_upload_speed ? _max_up_speed * 1024 : 0);
+
+        _download_manager.setMax_running_trans(_max_dl);
+        _upload_manager.setMax_running_trans(_max_ul);
+        _download_manager.secureNotify();
+        _upload_manager.secureNotify();
+
+        if (_use_smart_proxy) {
+
+            if (_proxy_manager == null) {
+                _proxy_manager = new VpnRotationManager(this);
+            } else {
+                _proxy_manager.refreshVpnSettings();
+            }
+
+            // Downloads sitting in a quota backoff can retry through the VPN now.
+            for (Transference t : _download_manager.getTransference_running_list()) {
+                for (ChunkDownloader cd : ((Download) t).getChunkworkers()) {
+                    cd.wakeFromBackoff();
+                }
+            }
+
+            for (Transference t : _download_manager.getTransference_finished_queue()) {
+                ((Download) t).wakeFromRetryCountdown();
+            }
+        }
+    }
+
     public void loadUserSettings() {
 
         String use_custom_chunks_dir = DBTools.selectSettingValue("use_custom_chunks_dir");
@@ -1123,31 +873,6 @@ public final class MainPanel {
         } else {
 
             _custom_chunks_dir = null;
-        }
-
-        String zoom_factor = selectSettingValue("font_zoom");
-
-        if (zoom_factor != null) {
-            _zoom_factor = Float.parseFloat(zoom_factor) / 100;
-        } else {
-            _zoom_factor = ZOOM_FACTOR;
-        }
-
-        String _font = selectSettingValue("font");
-
-        if (_font != null) {
-            if (_font.equals("DEFAULT")) {
-
-                GUI_FONT = new JLabel().getFont();
-
-            } else {
-
-                GUI_FONT = createAndRegisterFont("/fonts/NotoSansCJK-Regular.ttc");
-
-            }
-        } else {
-
-            GUI_FONT = createAndRegisterFont("/fonts/NotoSansCJK-Regular.ttc");
         }
 
         String def_slots = selectSettingValue("default_slots_down");
@@ -1353,12 +1078,9 @@ public final class MainPanel {
         }
 
         // Reads the NEW "vpn_enabled" key, not the old "smart_proxy" one --
-        // isUse_smart_proxy()/_proxy_manager keep their historical names
-        // (191 references across SettingsDialog/QuotaRecoveryPanel/
-        // MainPanelView, all now-unreachable GUI code kept only as inert
-        // plumbing per the plan doc) so that GUI-only code keeps compiling
-        // unmodified, but the actual driving setting and the manager
-        // implementation behind them are ExpressVPN-based now (#Phase4).
+        // isUse_smart_proxy()/_proxy_manager keep their historical names,
+        // but the driving setting and the manager implementation behind
+        // them are ExpressVPN-based now (#Phase4).
         String use_vpn = selectSettingValue("vpn_enabled");
 
         if (use_vpn != null) {
@@ -1473,49 +1195,6 @@ public final class MainPanel {
                 LAST_UL_FINISH_COMMAND_TIMESTAMP = System.currentTimeMillis();
             }
         }
-    }
-
-    public boolean checkByeBye() {
-
-        boolean exit = true;
-
-        if (!_streamserver.getWorking_threads().isEmpty()) {
-
-            Object[] options = {"No",
-                LabelTranslatorSingleton.getInstance().translate("Yes")};
-
-            int n = showOptionDialog(getView(),
-                    LabelTranslatorSingleton.getInstance().translate("It seems MegaBasterd is streaming video. Do you want to exit?"),
-                    LabelTranslatorSingleton.getInstance().translate("Warning!"), YES_NO_CANCEL_OPTION, QUESTION_MESSAGE,
-                    null,
-                    options,
-                    options[0]);
-
-            if (n == 0) {
-
-                exit = false;
-            }
-
-        } else if (!getDownload_manager().getTransference_preprocess_global_queue().isEmpty() || !getDownload_manager().getTransference_provision_queue().isEmpty() || !getUpload_manager().getTransference_preprocess_global_queue().isEmpty() || !getUpload_manager().getTransference_provision_queue().isEmpty()) {
-
-            Object[] options = {"No",
-                LabelTranslatorSingleton.getInstance().translate("Yes")};
-
-            int n = showOptionDialog(getView(),
-                    LabelTranslatorSingleton.getInstance().translate("It seems MegaBasterd is provisioning down/uploads.\n\nIf you exit now, unprovisioned down/uploads will be lost.\n\nDo you want to continue?"),
-                    LabelTranslatorSingleton.getInstance().translate("Warning!"), YES_NO_CANCEL_OPTION, WARNING_MESSAGE,
-                    null,
-                    options,
-                    options[0]);
-
-            if (n == 0) {
-
-                exit = false;
-            }
-
-        }
-
-        return exit;
     }
 
     public void byebyenow(boolean restart) {
@@ -1688,17 +1367,7 @@ public final class MainPanel {
                 }
 
                 if (!old_version.equals("0.0") && (Integer.parseInt(version_major) > Integer.parseInt(old_version_major) || (Integer.parseInt(version_major) == Integer.parseInt(old_version_major) && Integer.parseInt(version_minor) > Integer.parseInt(old_version_minor)))) {
-                    Object[] options = {"No",
-                        LabelTranslatorSingleton.getInstance().translate("Yes")};
-
-                    int n = showOptionDialog(getView(),
-                            I18n.tr("older_version_import_prompt", old_version),
-                            LabelTranslatorSingleton.getInstance().translate("Warning!"), YES_NO_CANCEL_OPTION, JOptionPane.INFORMATION_MESSAGE,
-                            null,
-                            options,
-                            options[0]);
-
-                    if (n == 1) {
+                    if (getUserPrompter().confirmYesNo(I18n.tr("older_version_import_prompt", old_version))) {
                         // The MB boot path has already opened the new (empty)
                         // megabasterd.db dozens of times via DBTools, so a WAL
                         // and -shm sidecar exist next to it. Naively copying
@@ -1731,13 +1400,12 @@ public final class MainPanel {
 
                         } catch (IOException copy_ex) {
                             Logger.getLogger(MainPanel.class.getName()).log(Level.SEVERE, "Settings import failed: {0}", copy_ex.getMessage());
-                            JOptionPane.showMessageDialog(getView(),
-                                    LabelTranslatorSingleton.getInstance().translate("Could not import the previous-version settings.") + "\n\n" + copy_ex.getMessage(),
-                                    LabelTranslatorSingleton.getInstance().translate("Import failed"), JOptionPane.ERROR_MESSAGE);
+                            getUserPrompter().showError(LabelTranslatorSingleton.getInstance().translate("Import failed"),
+                                    LabelTranslatorSingleton.getInstance().translate("Could not import the previous-version settings.") + "\n\n" + copy_ex.getMessage());
                             return;
                         }
 
-                        JOptionPane.showMessageDialog(getView(), LabelTranslatorSingleton.getInstance().translate("MegaBasterd will restart"), LabelTranslatorSingleton.getInstance().translate("Restart required"), JOptionPane.WARNING_MESSAGE);
+                        Logger.getLogger(MainPanel.class.getName()).log(Level.INFO, "Previous-version settings imported -- restarting");
 
                         restartApplication();
                     }
@@ -1750,43 +1418,27 @@ public final class MainPanel {
 
     }
 
+    /**
+     * Graceful exit, no questions asked (a front-end does its own "are you
+     * sure?"): persists the queues, stops running transfers safely in the
+     * background (30 s hard cap) and then exits/restarts the JVM. Returns
+     * immediately while transfers are still draining.
+     */
     public void byebye(boolean restart) {
 
-        _byebye(restart, true);
-    }
-
-    public void byebye(boolean restart, boolean restart_warning) {
-
-        _byebye(restart, restart_warning);
-    }
-
-    private void _byebye(boolean restart, boolean restart_warning) {
-
-        if (!_exit && checkByeBye()) {
-
-            if (restart && restart_warning) {
-                JOptionPane.showMessageDialog(getView(), LabelTranslatorSingleton.getInstance().translate("MegaBasterd will restart"), LabelTranslatorSingleton.getInstance().translate("Restart required"), JOptionPane.WARNING_MESSAGE);
-            }
+        if (!_exit) {
 
             _exit = true;
 
-            getView().getPause_all_down_button().setEnabled(false);
-
-            getView().getPause_all_up_button().setEnabled(false);
-
-            getView().setEnabled(false);
-
             if (!_download_manager.getTransference_running_list().isEmpty() || !_upload_manager.getTransference_running_list().isEmpty() || !_download_manager.getTransference_waitstart_queue().isEmpty() || !_upload_manager.getTransference_waitstart_queue().isEmpty()) {
 
-                // Hard cap on the graceful drain. Without this the dialog can sit
+                // Hard cap on the graceful drain. Without this the exit can sit
                 // indefinitely waiting for workers that are blocked inside a 60s
-                // HTTP read timeout (or repeatedly on consecutive 509 backoffs);
-                // the user ends up clicking EXIT NOW anyway. After this much wall
-                // time we just call byebyenow ourselves -- the queue has already
-                // been persisted upfront, so nothing is lost. (#751)
+                // HTTP read timeout (or repeatedly on consecutive 509 backoffs).
+                // After this much wall time we just call byebyenow ourselves --
+                // the queue has already been persisted upfront, so nothing is
+                // lost. (#751)
                 final long SHUTDOWN_HARD_TIMEOUT_MS = 30_000L;
-
-                final WarningExitMessage exit_message = new WarningExitMessage(getView(), true, this, restart);
 
                 THREAD_POOL.execute(() -> {
 
@@ -1871,17 +1523,14 @@ public final class MainPanel {
                         }
                     }
 
-                    boolean db_ok = true;
                     try {
                         DBTools.truncateDownloadsQueue();
                         DBTools.insertDownloadsQueue(downloads_queue);
                         DBTools.truncateUploadsQueue();
                         DBTools.insertUploadsQueue(uploads_queue);
                     } catch (SQLException ex) {
-                        db_ok = false;
                         Logger.getLogger(MainPanel.class.getName()).log(Level.SEVERE, null, ex);
                     }
-                    exit_message.setDbSaved(db_ok);
 
                     // -------------------------------------------------------------
                     // 2) Wake every worker and cut in-flight I/O.
@@ -1898,18 +1547,7 @@ public final class MainPanel {
                         if (download.isPaused()) {
                             download.pause();
                         }
-                        MiscTools.GUIRun(() -> {
-                            download.getView().printStatusNormal("Stopping download safely before exit MegaBasterd, please wait...");
-                            download.getView().getSlots_spinner().setEnabled(false);
-                            download.getView().getPause_button().setEnabled(false);
-                            download.getView().getCopy_link_button().setEnabled(false);
-                            download.getView().getOpen_folder_button().setEnabled(false);
-                            download.getView().getFile_size_label().setEnabled(false);
-                            download.getView().getFile_name_label().setEnabled(false);
-                            download.getView().getSpeed_label().setEnabled(false);
-                            download.getView().getSlots_label().setEnabled(false);
-                            download.getView().getProgress_pbar().setEnabled(false);
-                        });
+                        download.getView().printStatusNormal("Stopping download safely before exit MegaBasterd, please wait...");
                         for (ChunkDownloader cd : download.getChunkworkers()) {
                             try {
                                 cd.RESET_CURRENT_CHUNK();
@@ -1926,48 +1564,30 @@ public final class MainPanel {
                         if (upload.isPaused()) {
                             upload.pause();
                         }
-                        MiscTools.GUIRun(() -> {
-                            upload.getView().printStatusNormal("Stopping upload safely before exit MegaBasterd, please wait...");
-                            upload.getView().getSlots_spinner().setEnabled(false);
-                            upload.getView().getPause_button().setEnabled(false);
-                            upload.getView().getFolder_link_button().setEnabled(false);
-                            upload.getView().getFile_link_button().setEnabled(false);
-                            upload.getView().getFile_size_label().setEnabled(false);
-                            upload.getView().getFile_name_label().setEnabled(false);
-                            upload.getView().getSpeed_label().setEnabled(false);
-                            upload.getView().getSlots_label().setEnabled(false);
-                            upload.getView().getProgress_pbar().setEnabled(false);
-                        });
+                        upload.getView().printStatusNormal("Stopping upload safely before exit MegaBasterd, please wait...");
                         for (ChunkUploader cu : upload.getChunkworkers()) {
                             cu.secureNotify();
                         }
                     }
 
                     // -------------------------------------------------------------
-                    // 3) Drain loop with live status push and hard timeout.
+                    // 3) Drain loop with hard timeout.
                     // -------------------------------------------------------------
                     boolean wait;
                     boolean timed_out = false;
                     do {
-                        int dl_count = 0, dl_workers = 0, ul_count = 0, ul_workers = 0;
+                        int dl_workers = 0, ul_workers = 0;
 
                         for (Transference trans : _download_manager.getTransference_running_list()) {
-                            Download download = (Download) trans;
-                            dl_count++;
-                            dl_workers += download.getChunkworkers().size();
+                            dl_workers += ((Download) trans).getChunkworkers().size();
                         }
                         for (Transference trans : _upload_manager.getTransference_running_list()) {
-                            Upload upload = (Upload) trans;
-                            ul_count++;
-                            ul_workers += upload.getChunkworkers().size();
+                            ul_workers += ((Upload) trans).getChunkworkers().size();
                         }
 
                         wait = (dl_workers > 0 || ul_workers > 0);
 
-                        long elapsed = System.currentTimeMillis() - start;
-                        exit_message.updateStatus(dl_count, dl_workers, ul_count, ul_workers, elapsed, SHUTDOWN_HARD_TIMEOUT_MS);
-
-                        if (elapsed >= SHUTDOWN_HARD_TIMEOUT_MS) {
+                        if (System.currentTimeMillis() - start >= SHUTDOWN_HARD_TIMEOUT_MS) {
                             timed_out = true;
                             break;
                         }
@@ -1990,10 +1610,6 @@ public final class MainPanel {
 
                     byebyenow(restart);
                 });
-
-                exit_message.setLocationRelativeTo(getView());
-
-                exit_message.setVisible(true);
 
             } else {
                 byebyenow(restart);
@@ -2018,7 +1634,7 @@ public final class MainPanel {
 
             if (_single_instance_lock == null) {
                 // Another MegaBasterd instance already holds the lock.
-                // Try to ping its watchdog so it pops to the foreground;
+                // Try to ping its watchdog so it logs the attempt;
                 // if that fails because the port is taken by something
                 // else, no harm done -- still return "running".
                 _pingWatchdog();
@@ -2034,7 +1650,7 @@ public final class MainPanel {
         }
 
         // We are the only running instance. Spin up a watchdog listener
-        // so future invocations can ask us to come to the foreground.
+        // so future invocations can tell us they tried to start.
         // Try the configured port first, then a few alternates so a
         // foreign process holding 1338 doesn't break us.
         for (int port = WATCHDOG_PORT; port < WATCHDOG_PORT + 10; port++) {
@@ -2045,20 +1661,13 @@ public final class MainPanel {
                     while (!serverSocket.isClosed()) {
                         try {
                             try (Socket peer = serverSocket.accept()) {
-                                // CLI/headless: no window to bring to front. Just
-                                // log that another instance tried to start --
-                                // the peer connection itself is enough to tell
-                                // it "we're already running" (checkAppIsRunning
-                                // returns true for it based on the failed lock).
-                                if (MainPanel.isCliMode()) {
-                                    Logger.getLogger(MainPanel.class.getName()).log(Level.INFO,
-                                            "Another MegaBasterd instance tried to start; this one is already running.");
-                                } else {
-                                    MiscTools.GUIRun(() -> {
-                                        getView().setExtendedState(NORMAL);
-                                        getView().setVisible(true);
-                                    });
-                                }
+                                // Just log that another instance tried to
+                                // start -- the peer connection itself is enough
+                                // to tell it "we're already running"
+                                // (checkAppIsRunning returns true for it based
+                                // on the failed lock).
+                                Logger.getLogger(MainPanel.class.getName()).log(Level.INFO,
+                                        "Another MegaBasterd instance tried to start; this one is already running.");
                             }
                         } catch (IOException ex1) {
                             if (!serverSocket.isClosed()) {
@@ -2090,10 +1699,6 @@ public final class MainPanel {
     public void resumeDownloads() {
 
         if (!getResume_downloads()) {
-
-            MiscTools.GUIRun(() -> {
-                getView().getStatus_down_label().setText(LabelTranslatorSingleton.getInstance().translate("Checking if there are previous downloads, please wait..."));
-            });
 
             final MainPanel tthis = this;
 
@@ -2127,7 +1732,7 @@ public final class MainPanel {
 
                                 MegaAPI ma = new MegaAPI();
 
-                                if (email == null || !tthis.isUse_mega_account_down() || (ma = checkMegaAccountLoginAndShowMasterPassDialog(tthis, getView(), email)) != null) {
+                                if (email == null || !tthis.isUse_mega_account_down() || (ma = checkMegaAccountLoginAndShowMasterPassDialog(tthis, email)) != null) {
 
                                     Download download = new Download(tthis, ma, (String) url, (String) o.get("path"), (String) o.get("filename"), (String) o.get("filekey"), (Long) o.get("filesize"), (String) o.get("filepass"), (String) o.get("filenoexpire"), _use_slots_down, false, (String) o.get("custom_chunks_dir"), false);
 
@@ -2178,7 +1783,7 @@ public final class MainPanel {
 
                                 MegaAPI ma = new MegaAPI();
 
-                                if (email == null || !tthis.isUse_mega_account_down() || (ma = checkMegaAccountLoginAndShowMasterPassDialog(tthis, getView(), email)) != null) {
+                                if (email == null || !tthis.isUse_mega_account_down() || (ma = checkMegaAccountLoginAndShowMasterPassDialog(tthis, email)) != null) {
 
                                     Download download = new Download(tthis, ma, (String) entry.getKey(), (String) entry.getValue().get("path"), (String) entry.getValue().get("filename"), (String) entry.getValue().get("filekey"), (Long) entry.getValue().get("filesize"), (String) entry.getValue().get("filepass"), (String) entry.getValue().get("filenoexpire"), _use_slots_down, false, (String) entry.getValue().get("custom_chunks_dir"), false);
 
@@ -2211,96 +1816,11 @@ public final class MainPanel {
 
                     _download_manager.setSort_wait_start_queue(false);
                     getDownload_manager().secureNotify();
-                    MiscTools.GUIRun(() -> {
-                        getView().getjTabbedPane1().setSelectedIndex(0);
-                    });
 
                 } else {
                     setResume_downloads(true);
                 }
-
-                MiscTools.GUIRun(() -> {
-                    getView().getStatus_down_label().setText("");
-                });
             });
-
-        }
-
-    }
-
-    public void trayIcon() throws AWTException {
-
-        if (java.awt.SystemTray.isSupported()) {
-
-            JPopupMenu menu = new JPopupMenu();
-
-            Font new_font = GUI_FONT;
-
-            menu.setFont(new_font.deriveFont(Font.BOLD, Math.round(14 * ZOOM_FACTOR)));
-
-            JMenuItem messageItem = new JMenuItem(LabelTranslatorSingleton.getInstance().translate("Restore window"));
-
-            messageItem.addActionListener((ActionEvent e) -> {
-
-                getView().setExtendedState(NORMAL);
-
-                getView().setVisible(true);
-
-                getView().revalidate();
-
-                getView().repaint();
-
-            });
-
-            menu.add(messageItem);
-
-            JMenuItem closeItem = new JMenuItem(LabelTranslatorSingleton.getInstance().translate("EXIT"));
-
-            closeItem.addActionListener((ActionEvent e) -> {
-                if (!getView().isVisible()) {
-
-                    getView().setExtendedState(NORMAL);
-                    getView().setVisible(true);
-                    getView().revalidate();
-                    getView().repaint();
-
-                }
-
-                byebye(false);
-            });
-
-            menu.add(closeItem);
-
-            _trayicon = new TrayIcon(getDefaultToolkit().getImage(getClass().getResource(ICON_FILE)), "MegaBasterd", null);
-
-            _trayicon.setToolTip("mega-downloader " + VERSION);
-
-            _trayicon.setImageAutoSize(true);
-
-            _trayicon.addMouseListener(new MouseAdapter() {
-                public void mouseReleased(MouseEvent e) {
-
-                    if (SwingUtilities.isRightMouseButton(e)) {
-                        menu.setLocation(e.getX(), e.getY());
-                        menu.setInvoker(menu);
-                        menu.setVisible(true);
-                    } else {
-                        if (!getView().isVisible()) {
-                            getView().setExtendedState(NORMAL);
-                            getView().setVisible(true);
-                            getView().revalidate();
-                            getView().repaint();
-
-                        } else {
-
-                            getView().dispatchEvent(new WindowEvent(getView(), WINDOW_CLOSING));
-                        }
-                    }
-
-                }
-            });
-
-            getSystemTray().add(_trayicon);
 
         }
 
@@ -2309,10 +1829,6 @@ public final class MainPanel {
     public void resumeUploads() {
 
         if (!getResume_uploads()) {
-
-            MiscTools.GUIRun(() -> {
-                getView().getStatus_up_label().setText(LabelTranslatorSingleton.getInstance().translate("Checking if there are previous uploads, please wait..."));
-            });
 
             final MainPanel tthis = this;
 
@@ -2343,7 +1859,7 @@ public final class MainPanel {
 
                                     MegaAPI ma;
 
-                                    if ((ma = checkMegaAccountLoginAndShowMasterPassDialog(tthis, getView(), email)) != null) {
+                                    if ((ma = checkMegaAccountLoginAndShowMasterPassDialog(tthis, email)) != null) {
 
                                         Upload upload = new Upload(tthis, ma, (String) filename, (String) o.get("parent_node"), (String) o.get("ul_key") != null ? bin2i32a(BASE642Bin((String) o.get("ul_key"))) : null, (String) o.get("url"), (String) o.get("root_node"), BASE642Bin((String) o.get("share_key")), (String) o.get("folder_link"), false);
 
@@ -2388,7 +1904,7 @@ public final class MainPanel {
 
                                     MegaAPI ma;
 
-                                    if ((ma = checkMegaAccountLoginAndShowMasterPassDialog(tthis, getView(), email)) != null) {
+                                    if ((ma = checkMegaAccountLoginAndShowMasterPassDialog(tthis, email)) != null) {
 
                                         Upload upload = new Upload(tthis, ma, (String) entry.getKey(), (String) entry.getValue().get("parent_node"), (String) entry.getValue().get("ul_key") != null ? bin2i32a(BASE642Bin((String) entry.getValue().get("ul_key"))) : null, (String) entry.getValue().get("url"), (String) entry.getValue().get("root_node"), BASE642Bin((String) entry.getValue().get("share_key")), (String) entry.getValue().get("folder_link"), false);
 
@@ -2423,16 +1939,9 @@ public final class MainPanel {
 
                     _upload_manager.setSort_wait_start_queue(false);
                     getUpload_manager().secureNotify();
-                    MiscTools.GUIRun(() -> {
-                        getView().getjTabbedPane1().setSelectedIndex(1);
-                    });
                 } else {
                     setResume_uploads(true);
                 }
-
-                MiscTools.GUIRun(() -> {
-                    getView().getStatus_up_label().setText("");
-                });
             }
             );
         }

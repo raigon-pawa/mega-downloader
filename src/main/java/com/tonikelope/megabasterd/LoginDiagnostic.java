@@ -42,7 +42,7 @@ import javax.net.ssl.HttpsURLConnection;
  * The tool does NOT decrypt anything past the response — its job is to capture
  * what came back, not to validate the session. It also does not touch
  * MegaBasterd's production login path, so a failure in here never affects the
- * GUI.
+ * app.
  *
  * Run: java -cp MegaBasterd-8.25-jar-with-dependencies.jar \
  * com.tonikelope.megabasterd.LoginDiagnostic accounts.txt [outdir]

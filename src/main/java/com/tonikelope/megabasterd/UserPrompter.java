@@ -5,14 +5,11 @@
 package com.tonikelope.megabasterd;
 
 /**
- * Console stand-in for the handful of blocking Swing dialogs
- * (JOptionPane/JDialog) that core, non-GUI logic (MegaAPI, MegaCrypterAPI,
- * MiscTools, CryptTools) pops up mid-operation for user input or
- * confirmation. In GUI mode these call sites keep using their original
- * Swing dialogs unchanged (gated by MainPanel.isCliMode()); in CLI/Docker
- * mode they go through an implementation of this interface instead, since
- * a real dialog would block forever waiting for a click nobody watching
- * the (possibly virtual/headless-framebuffer) display can ever make.
+ * Every blocking question or error that core, toolkit-free logic (MegaAPI,
+ * MegaCrypterAPI, MiscTools, CryptTools, MainPanel) has for the user
+ * mid-operation. The front-end installs its implementation with
+ * {@link MainPanel#setUserPrompter}: console for the CLI (the default),
+ * dialogs for the GUI.
  */
 public interface UserPrompter {
 

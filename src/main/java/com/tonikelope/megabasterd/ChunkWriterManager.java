@@ -162,14 +162,7 @@ public class ChunkWriterManager implements Runnable, SecureSingleThreadNotifiabl
         _download.getView().printStatusNormal("Download finished. Joining file chunks, please wait...");
         _download.getMain_panel().getGlobal_dl_speed().detachTransference(_download);
 
-        MiscTools.GUIRun(() -> {
-            _download.getView().getPause_button().setVisible(false);
-            _download.getView().getSpeed_label().setVisible(false);
-            _download.getView().getSlots_label().setVisible(false);
-            _download.getView().getSlot_status_label().setVisible(false);
-            _download.getView().getSlots_spinner().setVisible(false);
-        });
-
+        _download.getView().updateSpeed(null, false);
     }
 
     @Override
